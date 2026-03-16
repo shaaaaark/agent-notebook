@@ -76,10 +76,78 @@ type HarnessMetrics = {
   status_counts: Record<string, number>;
 };
 
+type MetricDelta = {
+  label: string;
+  baseline: number;
+  candidate: number;
+  delta: number;
+};
+
+type CaseComparison = {
+  case_id: string;
+  baseline_status: string;
+  candidate_status: string;
+  baseline_recall: boolean;
+  candidate_recall: boolean;
+  baseline_context: boolean;
+  candidate_context: boolean;
+  baseline_citation: boolean;
+  candidate_citation: boolean;
+};
+
+type HarnessArgs = {
+  cases?: string;
+  host?: string;
+  runId?: string;
+  compare?: [string, string];
+};
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+
+  if (args.compare) {
+    const [baselineRunId, candidateRunId] = args.compare;
+    await compareRuns(baselineRunId, candidateRunId);
+    return;
+  }
+
+  await executeRun(args);
+}
+
+function parseArgs(argv: string[]): HarnessArgs {
+  const args: HarnessArgs = {};
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const current = argv[index];
+    const next = argv[index + 1];
+
+    if (current === '--compare') {
+      const baseline = argv[index + 1];
+      const candidate = argv[index + 2];
+      if (!baseline || !candidate || baseline.startsWith('--') || candidate.startsWith('--')) {
+        throw new Error('usage: --compare <baseline_run_id> <candidate_run_id>');
+      }
+      args.compare = [baseline, candidate];
+      index += 2;
+      continue;
+    }
+
+    if (current.startsWith('--') && next && !next.startsWith('--')) {
+      const key = current.slice(2);
+      if (key === 'cases') args.cases = next;
+      if (key === 'host') args.host = next;
+      if (key === 'run-id') args.runId = next;
+      index += 1;
+    }
+  }
+
+  return args;
+}
+
+async function executeRun(args: HarnessArgs) {
   const host = args.host ?? `http://localhost:${process.env.PORT ?? '3000'}`;
-  const runId = args.runId ?? new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
+  const runId =
+    args.runId ?? new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
   const casesDir = await resolveCasesDir(args.cases);
   const runDir = path.resolve(process.cwd(), 'eval', 'runs', runId);
 
@@ -121,14 +189,10 @@ async function main() {
         retrievedSources = Array.from(
           new Set(trace.retrieved_chunks?.map((item) => item.source) ?? []),
         );
-        selectedSources = Array.from(
-          new Set(trace.selected_sources ?? []),
-        );
+        selectedSources = Array.from(new Set(trace.selected_sources ?? []));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        process.stdout.write(
-          `[${evalCase.case_id}] trace fetch failed: ${msg}\n`,
-        );
+        process.stdout.write(`[${evalCase.case_id}] trace fetch failed: ${msg}\n`);
       }
     } else if (askResult.errorMessage) {
       process.stdout.write(
@@ -165,49 +229,58 @@ async function main() {
   }
 
   const metrics = buildMetrics(runId, host, runRecords);
-  await fs.writeFile(
-    path.join(runDir, 'trace.jsonl'),
-    runRecords.map((record) => JSON.stringify(record)).join('\n') + '\n',
-    'utf-8',
-  );
-  await fs.writeFile(
-    path.join(runDir, 'metrics.json'),
-    `${JSON.stringify(metrics, null, 2)}\n`,
-    'utf-8',
-  );
+  await writeJsonl(path.join(runDir, 'trace.jsonl'), runRecords);
+  await writeJson(path.join(runDir, 'metrics.json'), metrics);
   await fs.writeFile(
     path.join(runDir, 'report.md'),
-    buildReport(runId, casesDir, metrics, runRecords),
+    buildRunReport(runId, casesDir, metrics, runRecords),
     'utf-8',
   );
 
   process.stdout.write(`\nRun completed: eval/runs/${runId}\n`);
 }
 
-function parseArgs(argv: string[]) {
-  const args: Record<string, string> = {};
-  for (let index = 0; index < argv.length; index += 1) {
-    const current = argv[index];
-    const next = argv[index + 1];
-    if (current.startsWith('--') && next && !next.startsWith('--')) {
-      args[current.slice(2)] = next;
-      index += 1;
-    }
-  }
+async function compareRuns(baselineRunId: string, candidateRunId: string) {
+  const baselineDir = await resolveRunDir(baselineRunId);
+  const candidateDir = await resolveRunDir(candidateRunId);
 
-  return {
-    cases: args.cases,
-    host: args.host,
-    runId: args['run-id'],
-  };
+  const baselineMetrics = await readJson<HarnessMetrics>(
+    path.join(baselineDir, 'metrics.json'),
+  );
+  const candidateMetrics = await readJson<HarnessMetrics>(
+    path.join(candidateDir, 'metrics.json'),
+  );
+  const baselineRecords = await readJsonl<CaseRunRecord>(
+    path.join(baselineDir, 'trace.jsonl'),
+  );
+  const candidateRecords = await readJsonl<CaseRunRecord>(
+    path.join(candidateDir, 'trace.jsonl'),
+  );
+
+  const metricDeltas = buildMetricDeltas(baselineMetrics, candidateMetrics);
+  const comparison = compareCaseRuns(baselineRecords, candidateRecords);
+  const report = buildComparisonReport(
+    baselineRunId,
+    candidateRunId,
+    metricDeltas,
+    comparison.newFailures,
+    comparison.fixedCases,
+    comparison.statusChanges,
+    comparison.missingCases,
+  );
+  const reportPath = path.join(candidateDir, `compare_to_${baselineRunId}.md`);
+
+  await fs.writeFile(reportPath, report, 'utf-8');
+
+  process.stdout.write(`Compare completed: eval/runs/${candidateRunId}/compare_to_${baselineRunId}.md\n`);
+  process.stdout.write(
+    `Regressions=${comparison.newFailures.length}, fixed=${comparison.fixedCases.length}, status_changed=${comparison.statusChanges.length}\n`,
+  );
 }
 
 async function resolveCasesDir(input?: string): Promise<string> {
   const candidates = input
-    ? [
-        path.resolve(process.cwd(), input),
-        path.resolve(process.cwd(), 'eval', input),
-      ]
+    ? [path.resolve(process.cwd(), input), path.resolve(process.cwd(), 'eval', input)]
     : [path.resolve(process.cwd(), 'eval', 'cases')];
 
   for (const candidate of candidates) {
@@ -222,6 +295,19 @@ async function resolveCasesDir(input?: string): Promise<string> {
   }
 
   throw new Error(`Cases directory not found: ${input ?? 'eval/cases'}`);
+}
+
+async function resolveRunDir(runId: string): Promise<string> {
+  const runDir = path.resolve(process.cwd(), 'eval', 'runs', runId);
+  try {
+    const stat = await fs.stat(runDir);
+    if (!stat.isDirectory()) {
+      throw new Error();
+    }
+    return runDir;
+  } catch {
+    throw new Error(`Run directory not found: eval/runs/${runId}`);
+  }
 }
 
 async function loadCases(casesDir: string): Promise<EvalCase[]> {
@@ -377,11 +463,84 @@ function buildMetrics(
   };
 }
 
-function roundRate(value: number): number {
-  return Number(value.toFixed(4));
+function buildMetricDeltas(
+  baseline: HarnessMetrics,
+  candidate: HarnessMetrics,
+): MetricDelta[] {
+  return [
+    { label: 'Recall@K', baseline: baseline.recall_at_k, candidate: candidate.recall_at_k, delta: roundDelta(candidate.recall_at_k - baseline.recall_at_k) },
+    { label: 'Context-hit', baseline: baseline.context_hit, candidate: candidate.context_hit, delta: roundDelta(candidate.context_hit - baseline.context_hit) },
+    {
+      label: 'Citation presence',
+      baseline: baseline.citation_presence_rate,
+      candidate: candidate.citation_presence_rate,
+      delta: roundDelta(candidate.citation_presence_rate - baseline.citation_presence_rate),
+    },
+    { label: 'Clarify rate', baseline: baseline.clarify_rate, candidate: candidate.clarify_rate, delta: roundDelta(candidate.clarify_rate - baseline.clarify_rate) },
+    { label: 'Abstain rate', baseline: baseline.abstain_rate, candidate: candidate.abstain_rate, delta: roundDelta(candidate.abstain_rate - baseline.abstain_rate) },
+    { label: 'Error rate', baseline: baseline.error_rate, candidate: candidate.error_rate, delta: roundDelta(candidate.error_rate - baseline.error_rate) },
+  ];
 }
 
-function buildReport(
+function compareCaseRuns(
+  baselineRecords: CaseRunRecord[],
+  candidateRecords: CaseRunRecord[],
+): {
+  newFailures: CaseComparison[];
+  fixedCases: CaseComparison[];
+  statusChanges: CaseComparison[];
+  missingCases: string[];
+} {
+  const baselineMap = new Map(baselineRecords.map((record) => [record.case_id, record]));
+  const candidateMap = new Map(candidateRecords.map((record) => [record.case_id, record]));
+  const caseIds = Array.from(
+    new Set([...baselineMap.keys(), ...candidateMap.keys()]),
+  ).sort();
+
+  const newFailures: CaseComparison[] = [];
+  const fixedCases: CaseComparison[] = [];
+  const statusChanges: CaseComparison[] = [];
+  const missingCases: string[] = [];
+
+  for (const caseId of caseIds) {
+    const baseline = baselineMap.get(caseId);
+    const candidate = candidateMap.get(caseId);
+
+    if (!baseline || !candidate) {
+      missingCases.push(caseId);
+      continue;
+    }
+
+    const comparison: CaseComparison = {
+      case_id: caseId,
+      baseline_status: baseline.final_status,
+      candidate_status: candidate.final_status,
+      baseline_recall: baseline.recall_hit,
+      candidate_recall: candidate.recall_hit,
+      baseline_context: baseline.context_hit,
+      candidate_context: candidate.context_hit,
+      baseline_citation: baseline.citation_hit,
+      candidate_citation: candidate.citation_hit,
+    };
+
+    const baselineFailure = isFailure(baseline);
+    const candidateFailure = isFailure(candidate);
+
+    if (!baselineFailure && candidateFailure) {
+      newFailures.push(comparison);
+    }
+    if (baselineFailure && !candidateFailure) {
+      fixedCases.push(comparison);
+    }
+    if (baseline.final_status !== candidate.final_status) {
+      statusChanges.push(comparison);
+    }
+  }
+
+  return { newFailures, fixedCases, statusChanges, missingCases };
+}
+
+function buildRunReport(
   runId: string,
   casesDir: string,
   metrics: HarnessMetrics,
@@ -423,6 +582,132 @@ function buildReport(
   }
 
   return `${lines.join('\n')}\n`;
+}
+
+function buildComparisonReport(
+  baselineRunId: string,
+  candidateRunId: string,
+  metricDeltas: MetricDelta[],
+  newFailures: CaseComparison[],
+  fixedCases: CaseComparison[],
+  statusChanges: CaseComparison[],
+  missingCases: string[],
+): string {
+  const lines = [
+    `# Eval Comparison - ${candidateRunId} vs ${baselineRunId}`,
+    '',
+    `- Baseline: \`${baselineRunId}\``,
+    `- Candidate: \`${candidateRunId}\``,
+    '',
+    '## Metric Deltas',
+    '',
+    '| Metric | Baseline | Candidate | Delta |',
+    '|---|---:|---:|---:|',
+  ];
+
+  for (const row of metricDeltas) {
+    lines.push(
+      `| ${row.label} | ${row.baseline} | ${row.candidate} | ${formatSigned(row.delta)} |`,
+    );
+  }
+
+  lines.push('', '## New Failures', '');
+  appendComparisonTable(lines, newFailures, 'No new failures.');
+
+  lines.push('', '## Fixed Cases', '');
+  appendComparisonTable(lines, fixedCases, 'No fixed cases.');
+
+  lines.push('', '## Status Changes', '');
+  if (!statusChanges.length) {
+    lines.push('No status changes.');
+  } else {
+    lines.push('| Case | Baseline Status | Candidate Status |');
+    lines.push('|---|---|---|');
+    for (const item of statusChanges) {
+      lines.push(
+        `| ${item.case_id} | ${item.baseline_status} | ${item.candidate_status} |`,
+      );
+    }
+  }
+
+  lines.push('', '## Missing Cases', '');
+  if (!missingCases.length) {
+    lines.push('No missing cases between runs.');
+  } else {
+    lines.push(missingCases.map((item) => `- ${item}`).join('\n'));
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+function appendComparisonTable(
+  lines: string[],
+  cases: CaseComparison[],
+  emptyMessage: string,
+) {
+  if (!cases.length) {
+    lines.push(emptyMessage);
+    return;
+  }
+
+  lines.push('| Case | Baseline Status | Candidate Status | Recall | Context | Citation |');
+  lines.push('|---|---|---|---|---|---|');
+  for (const item of cases) {
+    lines.push(
+      `| ${item.case_id} | ${item.baseline_status} | ${item.candidate_status} | ${toDiffMark(item.baseline_recall, item.candidate_recall)} | ${toDiffMark(item.baseline_context, item.candidate_context)} | ${toDiffMark(item.baseline_citation, item.candidate_citation)} |`,
+    );
+  }
+}
+
+function toDiffMark(baseline: boolean, candidate: boolean): string {
+  return `${baseline ? 'Y' : 'N'} -> ${candidate ? 'Y' : 'N'}`;
+}
+
+function isFailure(record: CaseRunRecord): boolean {
+  return (
+    !record.recall_hit ||
+    !record.context_hit ||
+    !record.citation_hit ||
+    record.final_status === 'error'
+  );
+}
+
+function roundRate(value: number): number {
+  return Number(value.toFixed(4));
+}
+
+function roundDelta(value: number): number {
+  return Number(value.toFixed(4));
+}
+
+function formatSigned(value: number): string {
+  return value > 0 ? `+${value}` : `${value}`;
+}
+
+async function writeJson(filePath: string, value: unknown) {
+  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf-8');
+}
+
+async function writeJsonl(filePath: string, rows: unknown[]) {
+  await fs.writeFile(
+    filePath,
+    rows.map((row) => JSON.stringify(row)).join('\n') + '\n',
+    'utf-8',
+  );
+}
+
+async function readJson<T>(filePath: string): Promise<T> {
+  const content = await fs.readFile(filePath, 'utf-8');
+  return JSON.parse(content) as T;
+}
+
+async function readJsonl<T>(filePath: string): Promise<T[]> {
+  const content = await fs.readFile(filePath, 'utf-8');
+  return content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as T);
 }
 
 void main().catch((error: unknown) => {

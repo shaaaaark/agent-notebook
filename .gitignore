@@ -33,6 +33,7 @@ server/uploads/*
 # Eval run results (generated artifacts, not source)
 # ──────────────────────────────────────────────
 server/eval/runs/
+server/eval/inbox/
 
 # ──────────────────────────────────────────────
 # TypeScript

@@ -150,13 +150,13 @@ data:
 
 ## 开发路线
 
-项目当前处于 **Phase 0（基线完成）**，计划按 7 个阶段演进：
+项目当前已完成 **Phase 1-3**，下一阶段是 **Phase 4（混合检索 + Rerank）**：
 
 ```
 Phase 0 ✅  纯内存 RAG 基线
-Phase 1     文档分块 + 向量检索 + 引用标注
-Phase 2     Context Builder + 可观测 Trace + Abstain 策略
-Phase 3     Eval Harness（20 个回归 Case）
+Phase 1 ✅  文档分块 + 向量检索 + 引用标注
+Phase 2 ✅  Context Builder + 可观测 Trace + Abstain 策略
+Phase 3 ✅  Eval Harness（30 个回归 Case）
 Phase 4     混合检索（向量 + BM25）+ Rerank
 Phase 5     参数化发布 + 灰度分桶 + Replay 框架
 Phase 6     持久化（Qdrant + SQLite）+ Docker 部署
@@ -166,7 +166,7 @@ Phase 6     持久化（Qdrant + SQLite）+ Docker 部署
 
 ## 回归测试
 
-`server/eval/cases/` 下已预置 20 个测试 Case，覆盖：
+`server/eval/cases/` 下已预置 30 个测试 Case，覆盖：
 
 - 检索质量（Recall@K、混合检索参数）
 - Context Builder（去重、覆盖、压缩策略）
@@ -174,10 +174,11 @@ Phase 6     持久化（Qdrant + SQLite）+ Docker 部署
 - 发布工程（参数化、回滚阈值、灰度分桶、Replay）
 - 评估体系（指标定义、Eval Harness 设计）
 
-Eval Harness 脚本（`eval/harness.ts`）计划在 Phase 3 实现，届时可运行：
+Eval Harness 已支持单次运行和 run 间对比：
 
 ```bash
 npx ts-node eval/harness.ts --run-id baseline_$(date +%Y%m%d)
+npx ts-node eval/harness.ts --compare baseline_20260316 baseline_20260323
 ```
 
 ## License
