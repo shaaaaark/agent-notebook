@@ -53,5 +53,31 @@
     "must_cite": true,
     "gold_sources": ["2026-03-14_ai_progress_1230.md"],
     "constraints": ["需区分 Abstain 和 Clarify 的触发条件"]
+  },
+  {
+    "case_id": "trace-003",
+    "category": "observability",
+    "question": "为什么 request_id 必须贯穿 SSE、trace 查询接口和用户反馈接口？",
+    "expected_points": [
+      "前端需要用 request_id 把一次问答和后端 trace 对齐",
+      "问题复盘时可以通过 request_id 精确定位单次请求",
+      "用户反馈必须回写到同一条 trace 才能形成闭环"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-14_ai_progress_1045.md"],
+    "constraints": ["需说明它在调试和反馈归集中的作用"]
+  },
+  {
+    "case_id": "guardrail-002",
+    "category": "observability",
+    "question": "如果检索或 LLM 超时，RAG 系统应该怎样降级，才能既可用又可观测？",
+    "expected_points": [
+      "检索超时可降级为空 context 并返回 clarify",
+      "LLM 超时应返回 error 或降级结果，而不是一直阻塞",
+      "超时事件需要写入 trace，包括 final_status 和阶段耗时"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-14_ai_progress_1151.md"],
+    "constraints": ["需同时包含降级行为和日志要求"]
   }
 ]

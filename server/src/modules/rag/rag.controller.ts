@@ -1,4 +1,14 @@
-import { BadRequestException, Body, Controller, Post, Get, Res, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RagService } from './rag.service';
 import type { Response } from 'express';
@@ -27,7 +37,14 @@ export class RagController {
       const result = await this.rag.askStream(body.question, (chunk) => {
         send('message', chunk);
       });
-      send('done', JSON.stringify({ sources: result.sources }));
+      send(
+        'done',
+        JSON.stringify({
+          sources: result.sources,
+          final_status: result.finalStatus,
+          request_id: result.requestId,
+        }),
+      );
     } catch (err) {
       const error = err as Error & { status?: number; detail?: string };
       send('error', JSON.stringify({ message: error.message, status: error.status, detail: error.detail }));
@@ -73,6 +90,36 @@ export class RagController {
       embeddingModel,
       apiKey: maskedKey,
       envKey: maskedEnvKey,
+    };
+  }
+
+  @Get('trace/:requestId')
+  async getTrace(@Param('requestId') requestId: string) {
+    const trace = await this.rag.getTrace(requestId);
+    if (!trace) {
+      throw new NotFoundException(`trace not found for request_id=${requestId}`);
+    }
+    return trace;
+  }
+
+  @Post('feedback')
+  async feedback(@Body() body: { request_id?: string; score?: number }) {
+    if (!body.request_id?.trim()) {
+      throw new BadRequestException('request_id is required');
+    }
+    if (body.score !== 1 && body.score !== -1) {
+      throw new BadRequestException('score must be 1 or -1');
+    }
+
+    const trace = await this.rag.recordFeedback(body.request_id, body.score);
+    if (!trace) {
+      throw new NotFoundException(`trace not found for request_id=${body.request_id}`);
+    }
+
+    return {
+      ok: true,
+      request_id: body.request_id,
+      score: body.score,
     };
   }
 }

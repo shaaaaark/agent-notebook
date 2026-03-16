@@ -2,6 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
 
+export type ChatCompletionResult = {
+  content: string;
+  promptTokens: number;
+  completionTokens: number;
+};
+
 @Injectable()
 export class LlmProvider {
   public readonly chat: ChatOpenAI;
@@ -49,7 +55,8 @@ export class LlmProvider {
   async streamChatCompletion(
     prompt: string,
     onToken: (chunk: string) => void,
-  ) {
+    options?: { signal?: AbortSignal },
+  ): Promise<{ content: string }> {
     const url = `${this.baseUrl}/chat/completions`;
     const payload = {
       model: this.model,
@@ -66,6 +73,7 @@ export class LlmProvider {
         'User-Agent': 'curl/8.5.0',
       },
       body: JSON.stringify(payload),
+      signal: options?.signal,
     });
 
     if (!res.ok || !res.body) {
@@ -82,6 +90,7 @@ export class LlmProvider {
     const reader = res.body.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
+    let content = '';
 
     while (true) {
       const { value, done } = await reader.read();
@@ -95,7 +104,7 @@ export class LlmProvider {
         if (!trimmed.startsWith('data:')) continue;
         const data = trimmed.replace(/^data:\s*/, '');
         if (data === '[DONE]') {
-          return;
+          return { content };
         }
         try {
           const json = JSON.parse(data) as {
@@ -105,11 +114,62 @@ export class LlmProvider {
             json.choices?.[0]?.delta?.content ??
             json.choices?.[0]?.message?.content ??
             '';
-          if (delta) onToken(delta);
+          if (delta) {
+            content += delta;
+            onToken(delta);
+          }
         } catch {
           // ignore malformed chunks
         }
       }
     }
+
+    return { content };
+  }
+
+  async complete(
+    prompt: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ChatCompletionResult> {
+    const url = `${this.baseUrl}/chat/completions`;
+    const payload = {
+      model: this.model,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: this.maxTokens,
+      stream: false,
+    };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.apiKey}`,
+        'User-Agent': 'curl/8.5.0',
+      },
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      const err = new Error(`LLM request failed: ${res.status}`) as Error & {
+        status?: number;
+        detail?: string;
+      };
+      err.status = res.status;
+      err.detail = text;
+      throw err;
+    }
+
+    const json = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+
+    return {
+      content: json.choices?.[0]?.message?.content ?? '',
+      promptTokens: json.usage?.prompt_tokens ?? 0,
+      completionTokens: json.usage?.completion_tokens ?? 0,
+    };
   }
 }

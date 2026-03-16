@@ -52,5 +52,31 @@
     "must_cite": true,
     "gold_sources": ["2026-03-16_ai_progress_1309.md"],
     "constraints": ["需同时包含输入、策略、证据、产物四个要素"]
+  },
+  {
+    "case_id": "release-002",
+    "category": "release_engineering",
+    "question": "为什么 trace 里必须记录 policy_version，而不能只记录最终答案？",
+    "expected_points": [
+      "只看答案无法复现当时的策略参数",
+      "policy_version 能支持回滚、灰度对比和 replay",
+      "同一问题在不同策略下的差异需要可审计"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-14_ai_progress_1010.md"],
+    "constraints": ["需强调复现和审计两个目的"]
+  },
+  {
+    "case_id": "replay-002",
+    "category": "release_engineering",
+    "question": "为什么 replay 输入里不能只保留 query 和 answer_hash，还要保存 candidate chunk_id 列表？",
+    "expected_points": [
+      "只保留 query 无法保证重放时检索候选完全一致",
+      "candidate chunk_id 列表是最小证据闭包的一部分",
+      "这样才能隔离检索变化，专门比较 Context Builder 或生成策略"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-16_ai_progress_1309.md"],
+    "constraints": ["需说明它与可复现性的关系"]
   }
 ]

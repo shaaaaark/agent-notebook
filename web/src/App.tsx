@@ -6,12 +6,17 @@ import rehypeHighlight from 'rehype-highlight'
 import './App.css'
 
 type Role = 'user' | 'assistant' | 'system'
+type FinalStatus = 'success' | 'clarify' | 'abstain' | 'error'
+type FeedbackScore = 1 | -1
 
 type Message = {
   id: string
   role: Role
   content: string
   sources?: SourceItem[]
+  requestId?: string
+  finalStatus?: FinalStatus
+  feedback?: FeedbackScore
 }
 
 type SourceItem = {
@@ -44,6 +49,7 @@ function App() {
   const [debugInfo, setDebugInfo] = useState('')
   const [debugLoading, setDebugLoading] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
+  const [feedbackLoadingIds, setFeedbackLoadingIds] = useState<string[]>([])
   const chatRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -83,10 +89,62 @@ function App() {
     })
   }
 
-  const updateAssistantSources = (id: string, sources: SourceItem[]) => {
+  const updateAssistantMeta = (
+    id: string,
+    payload: {
+      sources?: SourceItem[]
+      requestId?: string
+      finalStatus?: FinalStatus
+    },
+  ) => {
     setMessages((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, sources } : m)),
+      prev.map((m) =>
+        m.id === id
+          ? {
+              ...m,
+              sources: payload.sources ?? m.sources,
+              requestId: payload.requestId ?? m.requestId,
+              finalStatus: payload.finalStatus ?? m.finalStatus,
+            }
+          : m,
+      ),
     )
+  }
+
+  const updateAssistantFeedback = (id: string, feedback: FeedbackScore) => {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, feedback } : m)),
+    )
+  }
+
+  const handleFeedback = async (
+    assistantId: string,
+    requestId: string,
+    score: FeedbackScore,
+  ) => {
+    if (feedbackLoadingIds.includes(assistantId)) return
+
+    setFeedbackLoadingIds((prev) => [...prev, assistantId])
+    try {
+      const res = await fetch('/rag/feedback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ request_id: requestId, score }),
+      })
+
+      if (!res.ok) {
+        throw new Error('feedback failed')
+      }
+
+      updateAssistantFeedback(assistantId, score)
+    } catch (err) {
+      console.error(err)
+      setError('反馈提交失败，请稍后再试。')
+    } finally {
+      setFeedbackLoadingIds((prev) => prev.filter((id) => id !== assistantId))
+    }
   }
 
   const handleSend = async () => {
@@ -112,13 +170,30 @@ function App() {
         },
         body: JSON.stringify({ question }),
         onmessage(ev) {
+          if (ev.event === 'error') {
+            try {
+              const parsed = JSON.parse(ev.data) as { message?: string }
+              setError(parsed.message || '流式请求失败，请稍后重试。')
+            } catch {
+              setError('流式请求失败，请稍后重试。')
+            }
+            setIsStreaming(false)
+            return
+          }
+
           if (ev.event === 'done') {
             if (ev.data) {
               try {
-                const parsed = JSON.parse(ev.data) as { sources?: SourceItem[] }
-                if (parsed.sources) {
-                  updateAssistantSources(assistantId, parsed.sources)
+                const parsed = JSON.parse(ev.data) as {
+                  sources?: SourceItem[]
+                  request_id?: string
+                  final_status?: FinalStatus
                 }
+                updateAssistantMeta(assistantId, {
+                  sources: parsed.sources,
+                  requestId: parsed.request_id,
+                  finalStatus: parsed.final_status,
+                })
               } catch {
                 // ignore malformed done payload
               }
@@ -333,11 +408,22 @@ function App() {
 
         <section className="chat-window" ref={chatRef}>
           {messages.map((msg) => (
-            <div key={msg.id} className={`bubble ${msg.role}`}>
+            <div
+              key={msg.id}
+              className={`bubble ${msg.role}${msg.finalStatus === 'clarify' || msg.finalStatus === 'abstain' ? ' clarify' : ''}`}
+            >
               <div className="meta">
                 <span>{msg.role === 'assistant' ? 'Agent' : msg.role === 'user' ? '你' : '系统'}</span>
                 <span className="meta-dot" />
                 <span className="meta-chip">{msg.role.toUpperCase()}</span>
+                {msg.finalStatus && msg.role === 'assistant' ? (
+                  <>
+                    <span className="meta-dot" />
+                    <span className={`status-chip ${msg.finalStatus}`}>
+                      {msg.finalStatus}
+                    </span>
+                  </>
+                ) : null}
               </div>
               <div className={`content ${msg.role === 'assistant' && msg.id === latestAssistantId && isStreaming ? 'typing' : ''}`}>
                 {msg.role === 'assistant' ? (
@@ -365,6 +451,29 @@ function App() {
                     ))}
                   </ul>
                 </details>
+              ) : null}
+              {msg.role === 'assistant' && msg.requestId ? (
+                <div className="assistant-tools">
+                  <span className="request-id">request_id: {msg.requestId}</span>
+                  <div className="feedback-actions">
+                    <button
+                      type="button"
+                      className={msg.feedback === 1 ? 'selected' : ''}
+                      onClick={() => handleFeedback(msg.id, msg.requestId!, 1)}
+                      disabled={feedbackLoadingIds.includes(msg.id)}
+                    >
+                      标记有帮助
+                    </button>
+                    <button
+                      type="button"
+                      className={msg.feedback === -1 ? 'selected' : ''}
+                      onClick={() => handleFeedback(msg.id, msg.requestId!, -1)}
+                      disabled={feedbackLoadingIds.includes(msg.id)}
+                    >
+                      标记不准确
+                    </button>
+                  </div>
+                </div>
               ) : null}
             </div>
           ))}

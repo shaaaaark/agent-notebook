@@ -34,5 +34,31 @@
     "must_cite": true,
     "gold_sources": ["2026-03-13_ai_progress_1729.md"],
     "constraints": ["需对比两种方式的优缺点"]
+  },
+  {
+    "case_id": "context-004",
+    "category": "context_builder",
+    "question": "为什么 Context Builder 需要 token budget？超预算时最少要记录哪些统计信息？",
+    "expected_points": [
+      "Context 预算用于限制 prompt 成本和延迟",
+      "超预算时需要记录 tokenUsed、selectedCount、truncated",
+      "被跳过的 chunk 需要有 skipped reason 便于调试"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_1843.md"],
+    "constraints": ["需同时说明预算目的和可观测字段"]
+  },
+  {
+    "case_id": "context-005",
+    "category": "context_builder",
+    "question": "为什么 Context Builder 要用 coverage_min_gain 过滤边际增益低的 chunk？",
+    "expected_points": [
+      "避免大量相似 chunk 重复占用上下文窗口",
+      "把 token 预算留给覆盖不同子主题的证据",
+      "便于在 Recall 足够时提升 Context 覆盖率"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_1729.md"],
+    "constraints": ["需强调覆盖优先而不是只追求最高分"]
   }
 ]

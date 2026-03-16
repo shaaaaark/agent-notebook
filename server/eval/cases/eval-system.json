@@ -65,5 +65,31 @@
     "must_cite": true,
     "gold_sources": ["2026-03-13_ai_progress_1531.md"],
     "constraints": ["需解释三层各自的职责"]
+  },
+  {
+    "case_id": "eval-003",
+    "category": "evaluation",
+    "question": "为什么 eval case 要优先从笔记末尾的自测题和关键问题中构建？",
+    "expected_points": [
+      "这些问题天然覆盖核心知识点，适合作为回归集",
+      "问题与 gold source 的对应关系更明确，便于评估召回",
+      "后续可以用失败 case 继续扩充形成闭环"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_1920.md"],
+    "constraints": ["需说明为什么它适合作为长期回归集来源"]
+  },
+  {
+    "case_id": "citation-002",
+    "category": "evaluation",
+    "question": "为什么在评估引用质量时，不能只看答案里有没有 [E1] 这样的标记？",
+    "expected_points": [
+      "有引用标记不代表证据真的支持对应论点",
+      "需要进一步判断引用和论点之间的支持关系",
+      "可用关键词重叠、NLI 或 LLM Judge 做自动评分"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_2030.md"],
+    "constraints": ["需说明“有引用”与“引用正确”不是一回事"]
   }
 ]

@@ -50,5 +50,31 @@
     "must_cite": true,
     "gold_sources": ["2026-03-13_ai_progress_1651.md"],
     "constraints": []
+  },
+  {
+    "case_id": "rag-003",
+    "category": "retrieval",
+    "question": "为什么按时间顺序直接取最后 5 个 chunk 作为 context，会让 RAG 回答质量变差？",
+    "expected_points": [
+      "时间顺序不能保证与当前问题相关",
+      "容易把最新但无关的 chunk 拼进 prompt",
+      "会掩盖真正高相关证据，导致回答偏题或幻觉"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-11_ai_progress_1834.md"],
+    "constraints": ["需说明它为什么不如相关度检索"]
+  },
+  {
+    "case_id": "retrieval-003",
+    "category": "retrieval",
+    "question": "为什么混合检索里还需要 rerank，而不是直接用向量检索和 BM25 融合后的结果？",
+    "expected_points": [
+      "融合后的 topN 仍然只是粗排候选",
+      "rerank 用 query-chunk 细粒度匹配进一步重排",
+      "只对 topM 候选做 rerank 是为了控制成本和延迟"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_1651.md"],
+    "constraints": ["需同时回答效果和成本两方面原因"]
   }
 ]

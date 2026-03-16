@@ -5,17 +5,17 @@
 ```
 eval/
   cases/                    ← Eval Case JSON 文件
-    rag-retrieval.json      ← 检索质量相关（4 cases）
-    context-eval.json       ← Context Builder 相关（3 cases）
-    observability-eval.json ← 可观测 / Trace / 护栏（4 cases）
-    release-eval.json       ← 发布工程 / 灰度 / Replay（4 cases）
-    eval-system.json        ← 评估体系自身 / Agent（5 cases）
+    rag-retrieval.json      ← 检索质量相关（6 cases）
+    context-eval.json       ← Context Builder 相关（5 cases）
+    observability-eval.json ← 可观测 / Trace / 护栏（6 cases）
+    release-eval.json       ← 发布工程 / 灰度 / Replay（6 cases）
+    eval-system.json        ← 评估体系自身 / Agent（7 cases）
   runs/                     ← 每次回归的运行结果（自动生成，gitignore）
     {run_id}/
       trace.jsonl           ← 每个 case 的完整 trace
-      metrics.json          ← Recall@K、Context-hit、citation_correct_rate
+      metrics.json          ← Recall@K、Context-hit、citation_presence_rate
       report.md             ← 对比上一次运行的差异报告
-  harness.ts                ← 回归脚本（待实现，见 ROADMAP Phase 3）
+  harness.ts                ← 回归脚本（已实现 MVP）
   thresholds.yaml           ← Hard Gate / Soft Gate 阈值（待实现，见 ROADMAP Phase 5）
   README.md                 ← 本文件
 ```
@@ -38,12 +38,12 @@ interface EvalCase {
 
 | 文件 | Cases 数 | 对应笔记 |
 |---|---|---|
-| `rag-retrieval.json` | 4 | `2026-03-11`, `2026-03-13_1651` |
-| `context-eval.json` | 3 | `2026-03-13_1843`, `2026-03-13_1729` |
-| `observability-eval.json` | 4 | `2026-03-13_1610`, `2026-03-14_1045/1151/1230` |
-| `release-eval.json` | 4 | `2026-03-14_1010`, `2026-03-16_1202/1236/1309` |
-| `eval-system.json` | 5 | `2026-03-12`, `2026-03-13_1920/1955/2030/1531` |
-| **合计** | **20** | — |
+| `rag-retrieval.json` | 6 | `2026-03-11`, `2026-03-13_1651` |
+| `context-eval.json` | 5 | `2026-03-13_1843`, `2026-03-13_1729` |
+| `observability-eval.json` | 6 | `2026-03-13_1610`, `2026-03-14_1045/1151/1230` |
+| `release-eval.json` | 6 | `2026-03-14_1010`, `2026-03-16_1202/1236/1309` |
+| `eval-system.json` | 7 | `2026-03-12`, `2026-03-13_1920/1955/2030/1531` |
+| **合计** | **30** | — |
 
 ## 使用流程
 
