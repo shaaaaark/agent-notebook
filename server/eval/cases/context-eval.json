@@ -1,0 +1,38 @@
+[
+  {
+    "case_id": "context-001",
+    "category": "context_builder",
+    "question": "Context Builder 模块的输入输出接口应该包含哪些字段？",
+    "expected_points": [
+      "输入：query、candidates（含 score/metadata）、tokenBudget",
+      "输出：selected[]、skipped[]（含跳过原因）、contextText、stats（token使用量/是否截断）"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_1843.md"],
+    "constraints": ["需同时描述输入和输出"]
+  },
+  {
+    "case_id": "context-002",
+    "category": "context_builder",
+    "question": "Context 构建时如何避免单个文档垄断上下文？",
+    "expected_points": [
+      "文档级去重：同一 source 最多保留 1-2 个 chunk",
+      "覆盖优先：边际增益低于阈值时跳过相似 chunk"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_1729.md"],
+    "constraints": []
+  },
+  {
+    "case_id": "context-003",
+    "category": "context_builder",
+    "question": "Context 压缩有哪两种方式？各有什么优缺点？",
+    "expected_points": [
+      "抽取式（extractive）：选关键句，速度快但信息损失可控",
+      "摘要式（abstractive）：生成摘要，token 效率高但有幻觉风险和额外成本"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_1729.md"],
+    "constraints": ["需对比两种方式的优缺点"]
+  }
+]

@@ -1,0 +1,54 @@
+[
+  {
+    "case_id": "rag-001",
+    "category": "retrieval",
+    "question": "RAG 生产环境中召回不足的根本原因有哪些？",
+    "expected_points": [
+      "分块策略不合理（粒度过粗或过细）",
+      "嵌入模型质量差或与业务语义不匹配",
+      "过滤条件过严导致候选集为空"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-11_ai_progress_1834.md"],
+    "constraints": ["答案需列举至少两个根本原因"]
+  },
+  {
+    "case_id": "rag-002",
+    "category": "prompt",
+    "question": "RAG 系统中 prompt 如何控制引用格式和幻觉？",
+    "expected_points": [
+      "固定角色/范围的 system prompt 模板",
+      "要求每个论点绑定证据 chunk ID（如 [E1]）",
+      "证据不足时使用兜底话术而非编造"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-11_ai_progress_1942.md"],
+    "constraints": ["必须提及兜底话术设计"]
+  },
+  {
+    "case_id": "retrieval-001",
+    "category": "retrieval",
+    "question": "混合检索流水线的完整步骤是什么？各阶段推荐的 topK 参数是多少？",
+    "expected_points": [
+      "query normalization → 向量检索（topK_v=50）+ BM25（topK_b=50）",
+      "去重合并 → RRF 融合排序（topN=30）",
+      "Rerank（topM=8）→ Context Builder → 生成"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_1651.md"],
+    "constraints": ["需给出具体参数数值"]
+  },
+  {
+    "case_id": "retrieval-002",
+    "category": "retrieval",
+    "question": "什么是 RRF 融合排序？公式是什么？",
+    "expected_points": [
+      "Reciprocal Rank Fusion",
+      "score_rrf = Σ 1/(rank_i + 60)",
+      "用于合并向量检索和 BM25 的排名结果"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_1651.md"],
+    "constraints": []
+  }
+]

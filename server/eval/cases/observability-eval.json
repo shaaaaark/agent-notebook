@@ -1,0 +1,57 @@
+[
+  {
+    "case_id": "trace-001",
+    "category": "observability",
+    "question": "生产 RAG 系统中，一条 request trace 应该记录哪些最小字段集？",
+    "expected_points": [
+      "request_id、timestamp、query_raw",
+      "检索阶段：topK 结果列表（含 chunk_id 和 score）、检索延迟",
+      "Context 阶段：selected/skipped chunk_id 列表、token 使用量",
+      "生成阶段：模型名、prompt/completion tokens、生成延迟",
+      "结果：answer_hash、citations_parsed、final_status"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-14_ai_progress_1045.md"],
+    "constraints": ["需覆盖检索、Context、生成三个阶段"]
+  },
+  {
+    "case_id": "trace-002",
+    "category": "observability",
+    "question": "RAG 调试路径分哪三步？每步解决什么问题？",
+    "expected_points": [
+      "第一步：正确 chunk 是否在 topK 中（检索阶段问题）",
+      "第二步：正确 chunk 是否进入 context（Context Builder 过滤问题）",
+      "第三步：context 正确但答案仍错（生成/prompt 问题）"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_1610.md"],
+    "constraints": []
+  },
+  {
+    "case_id": "guardrail-001",
+    "category": "observability",
+    "question": "RAG 系统的成本和延迟护栏应该包含哪几类？",
+    "expected_points": [
+      "预算类：max_prompt_tokens、max_context_tokens、max_rerank_items",
+      "超时类：检索 200ms、rerank 300ms、LLM 8s",
+      "降级路径：rerank 失败 → 用 fused topN；context 超预算 → 压缩后截断",
+      "缓存：query→检索结果短 TTL、chunk_id→embedding"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-14_ai_progress_1151.md"],
+    "constraints": ["需包含降级路径设计"]
+  },
+  {
+    "case_id": "abstain-001",
+    "category": "observability",
+    "question": "RAG 系统什么情况下应该触发 Abstain（拒答）？什么情况下应该触发 Clarify（澄清）？",
+    "expected_points": [
+      "Abstain：高风险领域（金融/法律/医疗）且证据不足",
+      "Clarify：检索 top1 分数低于阈值、context 为空、证据冲突（如时间版本矛盾）",
+      "两种情况都需要在 trace 里记录 final_status 和 abstain_reason"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-14_ai_progress_1230.md"],
+    "constraints": ["需区分 Abstain 和 Clarify 的触发条件"]
+  }
+]

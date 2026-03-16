@@ -1,0 +1,74 @@
+# ──────────────────────────────────────────────
+# Dependencies
+# ──────────────────────────────────────────────
+node_modules/
+
+# ──────────────────────────────────────────────
+# Build outputs
+# ──────────────────────────────────────────────
+dist/
+dist-ssr/
+build/
+.nest/
+
+# ──────────────────────────────────────────────
+# Environment / secrets — never commit real envs
+# ──────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+# keep .env.example as template (do NOT ignore it)
+
+# Windows Zone.Identifier sidecar files
+*.Zone.Identifier
+*:Zone.Identifier
+
+# ──────────────────────────────────────────────
+# Uploaded user files (runtime data, not source)
+# ──────────────────────────────────────────────
+server/uploads/*
+!server/uploads/.gitkeep
+
+# ──────────────────────────────────────────────
+# Eval run results (generated artifacts, not source)
+# ──────────────────────────────────────────────
+server/eval/runs/
+
+# ──────────────────────────────────────────────
+# TypeScript
+# ──────────────────────────────────────────────
+*.tsbuildinfo
+
+# ──────────────────────────────────────────────
+# Logs
+# ──────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ──────────────────────────────────────────────
+# Test / coverage
+# ──────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ──────────────────────────────────────────────
+# Vite / tooling cache
+# ──────────────────────────────────────────────
+.vite/
+.eslintcache
+
+# ──────────────────────────────────────────────
+# OS & editor
+# ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.suo
+*.sw?

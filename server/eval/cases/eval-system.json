@@ -1,0 +1,69 @@
+[
+  {
+    "case_id": "eval-001",
+    "category": "evaluation",
+    "question": "Recall@K 和 Context-hit 这两个指标分别衡量的是什么？",
+    "expected_points": [
+      "Recall@K：gold_source 是否出现在检索 topK 结果中（衡量检索阶段）",
+      "Context-hit：gold_source 是否进入最终 context（衡量 Context Builder 是否误杀）",
+      "两者组合可以区分问题在检索阶段还是 Context 过滤阶段"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_1920.md"],
+    "constraints": ["需解释两个指标各自衡量的阶段"]
+  },
+  {
+    "case_id": "eval-002",
+    "category": "evaluation",
+    "question": "Eval Harness 的目录结构应该怎么设计？每次运行保存哪些文件？",
+    "expected_points": [
+      "cases/：存放 JSON case 文件",
+      "runs/{run_id}/：每次运行独立目录",
+      "trace.jsonl：每个 case 的完整 trace",
+      "metrics.json：汇总指标（Recall@K、Context-hit 等）",
+      "report.md：自动生成的对比报告"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_1955.md"],
+    "constraints": []
+  },
+  {
+    "case_id": "citation-001",
+    "category": "evaluation",
+    "question": "引用正确率（citation correctness）如何自动评分？有哪三种自动判断方法？",
+    "expected_points": [
+      "关键词/字符串重叠（基线，速度快但错误率高）",
+      "NLI/蕴含模型（推荐，判断证据是否支持论点）",
+      "LLM Judge（兜底，成本高但最灵活）"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_2030.md"],
+    "constraints": ["需给出三种方法的优缺点对比"]
+  },
+  {
+    "case_id": "agent-001",
+    "category": "agent",
+    "question": "AI Agent Loop 的完整步骤是什么？",
+    "expected_points": [
+      "接收目标 → 分析上下文 → 选择动作 → 调用工具",
+      "读取结果 → 更新状态 → 检查完成条件",
+      "共 7 步，循环直到完成"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-12_ai_progress_1650.md"],
+    "constraints": []
+  },
+  {
+    "case_id": "ingest-001",
+    "category": "ingest",
+    "question": "知识库增量更新的三层数据模型是什么？各层的作用是什么？",
+    "expected_points": [
+      "document 层：文件级别，记录文件元信息和版本",
+      "chunk 层：分块记录，含 chunk_id 和内容 hash",
+      "embedding_record 层：向量记录，含向量值和关联的 chunk_id"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-13_ai_progress_1531.md"],
+    "constraints": ["需解释三层各自的职责"]
+  }
+]

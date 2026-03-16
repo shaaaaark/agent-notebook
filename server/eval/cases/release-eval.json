@@ -1,0 +1,56 @@
+[
+  {
+    "case_id": "release-001",
+    "category": "release_engineering",
+    "question": "为什么 RAG 系统的所有策略参数都要参数化？参数化的核心目的是什么？",
+    "expected_points": [
+      "支持快速回滚（切换 policy_version 即可）",
+      "支持灰度 A/B 测试（不同 bucket 跑不同策略）",
+      "支持离线回归（用历史 trace 重放时能复现当时参数）",
+      "确保 trace 可审计（每条 trace 记录当时的 policy_version）"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-14_ai_progress_1010.md"],
+    "constraints": []
+  },
+  {
+    "case_id": "regression-001",
+    "category": "release_engineering",
+    "question": "质量回归的 Hard Gate 和 Soft Gate 有什么区别？各举两个指标例子。",
+    "expected_points": [
+      "Hard Gate：触发自动回滚，如引用正确率下降 >2%、p95 延迟上升 >15%",
+      "Soft Gate：触发人工 review，如 Recall@K 下降 ≤3%、用户满意度下降 ≤1%",
+      "两者区别在于影响严重程度和是否需要自动响应"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-16_ai_progress_1202.md"],
+    "constraints": ["需区分自动回滚和人工 review 两种响应方式"]
+  },
+  {
+    "case_id": "grayscale-001",
+    "category": "release_engineering",
+    "question": "灰度分桶设计的三个核心原则是什么？",
+    "expected_points": [
+      "稳定性：同一用户始终在同一 bucket（用 hash(user_id)）",
+      "对齐性：实验组和对照组除策略外其他条件完全相同",
+      "可追溯：bucket_id 和 policy_version 写入每条 trace"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-16_ai_progress_1236.md"],
+    "constraints": []
+  },
+  {
+    "case_id": "replay-001",
+    "category": "release_engineering",
+    "question": "生产问题 Replay 的最小闭包（minimum replay closure）包含哪些要素？",
+    "expected_points": [
+      "输入：query_raw、filters、user_id_hash",
+      "策略：policy_version + 关键参数（topK/topM/阈值）",
+      "证据：candidate chunk_id 列表 + selected context 列表",
+      "产物：answer_text 或 answer_hash + citations_parsed"
+    ],
+    "must_cite": true,
+    "gold_sources": ["2026-03-16_ai_progress_1309.md"],
+    "constraints": ["需同时包含输入、策略、证据、产物四个要素"]
+  }
+]
