@@ -1,0 +1,185 @@
+# Agent Notebook
+
+> 基于 RAG 的个人知识库助手。上传笔记、文档或 PDF，通过流式对话向知识库提问，答案附带来源引用。
+
+![stack](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)
+![stack](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![stack](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![stack](https://img.shields.io/badge/LangChain-OpenAI-412991?logo=openai&logoColor=white)
+
+---
+
+## 功能概览
+
+- **文档摄取** — 拖拽或点击上传 `.md` / `.txt` / `.pdf`，支持多文件批量上传
+- **RAG 问答** — 基于上传文档进行语义检索，流式返回带引用标注的答案
+- **每日复习** — 每天 20:00（Asia/Shanghai）自动触发文档摘要，辅助知识回顾
+- **调试接口** — 内置 `/rag/debug` 端点，可查看当前 LLM 配置（Key 脱敏）
+
+## 技术栈
+
+| 层 | 技术 |
+|---|---|
+| 后端框架 | NestJS 11 · TypeScript |
+| LLM 集成 | LangChain / `@langchain/openai` |
+| 流式传输 | 原生 Fetch SSE + Server-Sent Events |
+| 文件解析 | `pdf-parse`（PDF）· 原生字符串（MD/TXT）|
+| 文件上传 | `multer` diskStorage |
+| 定时任务 | `@nestjs/schedule` Cron |
+| 前端框架 | React 19 · TypeScript · Vite 8 |
+| Markdown 渲染 | `react-markdown` + `remark-gfm` + `rehype-highlight` |
+| SSE 客户端 | `@microsoft/fetch-event-source` |
+
+## 项目结构
+
+```
+agent-notebook/
+├── server/                        # NestJS 后端（端口 8788）
+│   ├── src/
+│   │   ├── providers/
+│   │   │   └── llm.provider.ts    # LLM & Embeddings 封装
+│   │   └── modules/
+│   │       ├── config/            # 环境配置（ConfigModule）
+│   │       ├── ingest/            # 文件上传与解析  POST /ingest/file
+│   │       ├── rag/               # RAG 问答引擎    POST /rag/ask
+│   │       └── schedule/          # 每日复习 Cron
+│   ├── eval/
+│   │   ├── cases/                 # 回归测试 Case（20 个，JSON 格式）
+│   │   └── README.md              # Eval 体系说明
+│   ├── scripts/
+│   │   └── seed.ts                # 批量导入笔记的种子脚本
+│   ├── uploads/                   # 上传文件存储目录（.gitignore 保护）
+│   └── .env.example               # 环境变量模板
+├── web/                           # React 前端
+│   └── src/
+│       ├── App.tsx                # 主界面（侧栏上传 + 主聊天区）
+│       └── App.css                # 样式（暖纸色主题）
+├── .gitignore
+└── ROADMAP.md                     # 7 阶段演进路线图
+```
+
+## 快速开始
+
+### 前置要求
+
+- Node.js ≥ 18
+- 任意 OpenAI 兼容的 API（OpenAI / Azure / 本地代理均可）
+
+### 1. 克隆与安装
+
+```bash
+git clone git@github.com:shaaaaark/agent-notebook.git
+cd agent-notebook
+
+# 安装后端依赖
+cd server && npm install
+
+# 安装前端依赖
+cd ../web && npm install
+```
+
+### 2. 配置环境变量
+
+```bash
+cd server
+cp .env.example .env
+```
+
+编辑 `.env`：
+
+```env
+OPENAI_BASE_URL=https://api.openai.com/v1   # 或你的代理地址
+OPENAI_API_KEY=sk-xxx
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+```
+
+### 3. 启动服务
+
+```bash
+# 终端 1 — 启动后端（端口 8788）
+cd server && npm run start:dev
+
+# 终端 2 — 启动前端（端口 5173，自动代理到后端）
+cd web && npm run dev
+```
+
+浏览器打开 [http://localhost:5173](http://localhost:5173)
+
+### 4. 导入测试数据（可选）
+
+如果你有 `md-collection/ai_progress/` 目录下的学习笔记，可以一键导入：
+
+```bash
+cd server
+npx ts-node scripts/seed.ts
+# 默认读取 ../../md-collection/ai_progress/，需后端已启动
+```
+
+## API 文档
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/ingest/file` | 上传文件，`multipart/form-data`，字段名 `file` |
+| `POST` | `/rag/ask` | 问答，JSON `{ "question": "..." }`，SSE 流式响应 |
+| `GET` | `/rag/retrieve` | 调试检索，`?q=关键词`，返回 topK chunks + scores |
+| `GET` | `/rag/debug` | 查看当前 LLM 配置（API Key 已脱敏） |
+
+**SSE 事件格式（`/rag/ask`）**
+
+```
+event: message
+data: 生成的文本片段
+
+event: done
+data:
+```
+
+## 环境变量说明
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `PORT` | `8788` | 后端监听端口 |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | API 基础地址 |
+| `OPENAI_API_KEY` | — | API 密钥（必填）|
+| `OPENAI_MODEL` | `gpt-4o-mini` | 对话模型 |
+| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | 向量化模型 |
+| `VECTOR_STORE` | `memory` | 向量存储类型（当前仅支持 `memory`）|
+| `SCHEDULE_TIMEZONE` | `Asia/Shanghai` | 定时任务时区 |
+| `REVIEW_CRON` | `0 20 * * *` | 复习任务 Cron 表达式 |
+
+## 开发路线
+
+项目当前处于 **Phase 0（基线完成）**，计划按 7 个阶段演进：
+
+```
+Phase 0 ✅  纯内存 RAG 基线
+Phase 1     文档分块 + 向量检索 + 引用标注
+Phase 2     Context Builder + 可观测 Trace + Abstain 策略
+Phase 3     Eval Harness（20 个回归 Case）
+Phase 4     混合检索（向量 + BM25）+ Rerank
+Phase 5     参数化发布 + 灰度分桶 + Replay 框架
+Phase 6     持久化（Qdrant + SQLite）+ Docker 部署
+```
+
+详细实现规划见 [ROADMAP.md](./ROADMAP.md)。
+
+## 回归测试
+
+`server/eval/cases/` 下已预置 20 个测试 Case，覆盖：
+
+- 检索质量（Recall@K、混合检索参数）
+- Context Builder（去重、覆盖、压缩策略）
+- 可观测性（Trace 字段、调试路径、Abstain 触发条件）
+- 发布工程（参数化、回滚阈值、灰度分桶、Replay）
+- 评估体系（指标定义、Eval Harness 设计）
+
+Eval Harness 脚本（`eval/harness.ts`）计划在 Phase 3 实现，届时可运行：
+
+```bash
+npx ts-node eval/harness.ts --run-id baseline_$(date +%Y%m%d)
+```
+
+## License
+
+MIT
