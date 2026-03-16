@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Get, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Post, Get, Res, Query } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RagService } from './rag.service';
 import type { Response } from 'express';
@@ -24,16 +24,38 @@ export class RagController {
     };
 
     try {
-      await this.rag.askStream(body.question, (chunk) => {
+      const result = await this.rag.askStream(body.question, (chunk) => {
         send('message', chunk);
       });
-      send('done', '');
+      send('done', JSON.stringify({ sources: result.sources }));
     } catch (err) {
       const error = err as Error & { status?: number; detail?: string };
       send('error', JSON.stringify({ message: error.message, status: error.status, detail: error.detail }));
     } finally {
       res.end();
     }
+  }
+
+  @Get('retrieve')
+  async retrieve(@Query('q') q: string, @Query('k') k?: string) {
+    if (!q?.trim()) {
+      throw new BadRequestException('query param "q" is required');
+    }
+    const topK = k ? parseInt(k, 10) : undefined;
+    if (topK !== undefined && (Number.isNaN(topK) || topK < 1)) {
+      throw new BadRequestException('"k" must be a positive integer');
+    }
+    const docs = await this.rag.retrieve(q, topK);
+    return {
+      query: q,
+      topK: docs.length,
+      chunks: docs.map((item) => ({
+        chunk_id: String(item.doc.metadata.chunk_id ?? 'unknown'),
+        source: String(item.doc.metadata.source ?? item.doc.metadata.filename ?? 'unknown'),
+        score: Number(item.score.toFixed(4)),
+        pageContent: item.doc.pageContent,
+      })),
+    };
   }
 
   @Get('debug')

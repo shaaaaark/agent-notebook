@@ -11,6 +11,14 @@ type Message = {
   id: string
   role: Role
   content: string
+  sources?: SourceItem[]
+}
+
+type SourceItem = {
+  chunk_id: string
+  source: string
+  score: number
+  snippet: string
 }
 
 const nowId = () => `${Date.now()}_${Math.random().toString(16).slice(2)}`
@@ -75,6 +83,12 @@ function App() {
     })
   }
 
+  const updateAssistantSources = (id: string, sources: SourceItem[]) => {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, sources } : m)),
+    )
+  }
+
   const handleSend = async () => {
     if (!input.trim() || isStreaming) return
     setError('')
@@ -99,6 +113,16 @@ function App() {
         body: JSON.stringify({ question }),
         onmessage(ev) {
           if (ev.event === 'done') {
+            if (ev.data) {
+              try {
+                const parsed = JSON.parse(ev.data) as { sources?: SourceItem[] }
+                if (parsed.sources) {
+                  updateAssistantSources(assistantId, parsed.sources)
+                }
+              } catch {
+                // ignore malformed done payload
+              }
+            }
             setIsStreaming(false)
             return
           }
@@ -324,6 +348,24 @@ function App() {
                   msg.content
                 )}
               </div>
+              {msg.role === 'assistant' && msg.sources?.length ? (
+                <details className="sources-panel">
+                  <summary>来源 ({msg.sources.length})</summary>
+                  <ul>
+                    {msg.sources.map((source) => (
+                      <li key={source.chunk_id}>
+                        <div className="source-row">
+                          <span className="source-name">{source.source}</span>
+                          <span className="source-score">
+                            {(source.score * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                        <p className="source-snippet">{source.snippet}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
             </div>
           ))}
         </section>

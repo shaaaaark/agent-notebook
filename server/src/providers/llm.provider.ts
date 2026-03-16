@@ -9,16 +9,19 @@ export class LlmProvider {
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly model: string;
+  private readonly maxTokens: number;
 
   constructor(private readonly config: ConfigService) {
     const baseUrl = this.config.get<string>('openai.baseUrl') ?? '';
     const apiKey = this.config.get<string>('openai.apiKey') ?? '';
     const model = this.config.get<string>('openai.model') ?? '';
     const embeddingModel = this.config.get<string>('openai.embeddingModel') ?? '';
+    const maxTokens = this.config.get<number>('openai.maxTokens') ?? 1024;
 
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.apiKey = apiKey;
     this.model = model;
+    this.maxTokens = maxTokens;
 
     this.chat = new ChatOpenAI({
       model,
@@ -51,7 +54,7 @@ export class LlmProvider {
     const payload = {
       model: this.model,
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 512,
+      max_tokens: this.maxTokens,
       stream: true,
     };
 

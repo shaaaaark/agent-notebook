@@ -9,7 +9,6 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
-import { FormData, File } from 'formdata-node'
 
 const DEFAULT_DIR = path.resolve(__dirname, '../../../md-collection/ai_progress')
 const DEFAULT_HOST = 'http://localhost:8788'
@@ -49,7 +48,11 @@ async function main() {
 
     try {
       const form = new FormData()
-      form.set('file', new File([fileBuffer], filename, { type: 'text/markdown' }))
+      const ext = path.extname(filename).toLowerCase()
+      const contentType =
+        ext === '.pdf' ? 'application/pdf' : ext === '.txt' ? 'text/plain' : 'text/markdown'
+      const fileBlob = new Blob([fileBuffer], { type: contentType })
+      form.set('file', fileBlob, filename)
 
       const res = await fetch(`${host}/ingest/file`, {
         method: 'POST',
