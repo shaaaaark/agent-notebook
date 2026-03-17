@@ -8,6 +8,13 @@ export type TraceChunkRecord = {
   chunk_id: string;
   source: string;
   score: number;
+  score_vec?: number;
+  score_bm25?: number;
+  score_rrf?: number;
+  rerank_score?: number;
+  rank_vec?: number;
+  rank_bm25?: number;
+  rank_final?: number;
 };
 
 export interface RequestTrace {
@@ -15,6 +22,9 @@ export interface RequestTrace {
   timestamp: string;
   query_raw: string;
   retrieve_topK: number;
+  retrieval_strategy?: string;
+  retrieve_degraded?: boolean;
+  retrieve_degrade_reason?: string;
   retrieved_chunks: TraceChunkRecord[];
   retrieve_latency_ms: number;
   selected_chunks: string[];

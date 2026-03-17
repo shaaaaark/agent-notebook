@@ -7,15 +7,83 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { PDFParse } from 'pdf-parse';
 
+type TrackedFile = {
+  filePath: string;
+  hash: string;
+};
+
 @Injectable()
 export class IngestService {
   private readonly logger = new Logger(IngestService.name);
   private readonly fileHashes = new Map<string, string>();
+  private readonly trackedFiles = new Map<string, TrackedFile>();
 
   constructor(
     private readonly rag: RagService,
     private readonly config: ConfigService,
   ) {}
+
+  async ingestFile(filePath: string, originalName: string) {
+    const { text } = await this.readFileText(filePath, originalName);
+    const hash = this.hashText(text);
+
+    if (this.fileHashes.get(originalName) === hash) {
+      this.trackedFiles.set(originalName, { filePath, hash });
+      this.logger.log(`Skipped duplicate file ${originalName}`);
+      return { ok: true, skipped: true, filename: originalName };
+    }
+
+    this.fileHashes.set(originalName, hash);
+    this.trackedFiles.set(originalName, { filePath, hash });
+
+    const deleted = this.rag.deleteBySource(originalName);
+    if (deleted > 0) {
+      this.logger.log(`Cleared ${deleted} stale chunks for ${originalName}`);
+    }
+
+    const chunks = this.chunk(text, originalName);
+    await this.rag.addDocuments(chunks);
+    this.logger.log(`Ingested ${originalName} into ${chunks.length} chunks`);
+    return { ok: true, skipped: false, filename: originalName, chunks: chunks.length };
+  }
+
+  getStatus() {
+    const status = this.rag.getKnowledgeBaseStatus();
+    return {
+      document_count: status.documentCount,
+      chunk_count: status.chunkCount,
+      last_updated_at: status.lastUpdatedAt,
+      kb_version: status.kbVersion,
+    };
+  }
+
+  async reindexAll() {
+    const groups: Array<{ source: string; docs: Document[] }> = [];
+
+    for (const [source, tracked] of Array.from(this.trackedFiles.entries()).sort(([a], [b]) =>
+      a.localeCompare(b),
+    )) {
+      const { text } = await this.readFileText(tracked.filePath, source);
+      const hash = this.hashText(text);
+      this.fileHashes.set(source, hash);
+      this.trackedFiles.set(source, { ...tracked, hash });
+      groups.push({
+        source,
+        docs: this.chunk(text, source),
+      });
+    }
+
+    await this.rag.rebuildIndex(groups);
+
+    const status = this.rag.getKnowledgeBaseStatus();
+    return {
+      ok: true,
+      document_count: status.documentCount,
+      chunk_count: status.chunkCount,
+      last_updated_at: status.lastUpdatedAt,
+      kb_version: status.kbVersion,
+    };
+  }
 
   private chunk(text: string, source: string): Document[] {
     const size = this.config.get<number>('chunk.size') ?? 500;
@@ -57,7 +125,7 @@ export class IngestService {
     );
   }
 
-  async ingestFile(filePath: string, originalName: string) {
+  private async readFileText(filePath: string, originalName: string) {
     const ext = path.extname(originalName).toLowerCase();
     const raw = await fs.readFile(filePath);
     let text = '';
@@ -73,21 +141,10 @@ export class IngestService {
       throw new Error(`Unsupported file type: ${ext}`);
     }
 
-    const hash = crypto.createHash('sha256').update(text).digest('hex');
-    if (this.fileHashes.get(originalName) === hash) {
-      this.logger.log(`Skipped duplicate file ${originalName}`);
-      return { ok: true, skipped: true, filename: originalName };
-    }
-    this.fileHashes.set(originalName, hash);
+    return { text };
+  }
 
-    const deleted = this.rag.deleteBySource(originalName);
-    if (deleted > 0) {
-      this.logger.log(`Cleared ${deleted} stale chunks for ${originalName}`);
-    }
-
-    const chunks = this.chunk(text, originalName);
-    await this.rag.addDocuments(chunks);
-    this.logger.log(`Ingested ${originalName} into ${chunks.length} chunks`);
-    return { ok: true, skipped: false, filename: originalName, chunks: chunks.length };
+  private hashText(text: string): string {
+    return crypto.createHash('sha256').update(text).digest('hex');
   }
 }

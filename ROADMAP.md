@@ -270,10 +270,15 @@ eval/
 npx ts-node eval/harness.ts --cases cases/ --run-id $(date +%Y%m%d_%H%M)
 ```
 
+- [x] 支持 `--compare <baseline> <target>` 输出差异报告
+- [x] 回归目录沉淀 `trace.jsonl / metrics.json / report.md`
+
 ### 3.3 失败案例自动归集（对应笔记 `2026-03-13_ai_progress_1610.md`）
 
-- [ ] 在 trace 中记录 `user_feedback`（前端拇指下/上按钮，后续通过 `POST /rag/feedback` 写入）
-- [ ] 每周从 `logs/traces/` 抽取 `final_status=clarify` 或有 feedback=-1 的 trace，人工标注后补充进 `eval/cases/`
+- [x] 在 trace 中记录 `user_feedback`（前端拇指下/上按钮，后续通过 `POST /rag/feedback` 写入）
+- [x] 每周从 `logs/traces/` 抽取 `final_status=clarify` 或有 feedback=-1 的 trace，人工标注后补充进 `eval/cases/`
+
+> Phase 3 边界说明：回归运行、run 对比、失败样本归集已完成；`thresholds.yaml`、自动 hard gate、灰度发布、replay 仍在 Phase 5。
 
 ---
 

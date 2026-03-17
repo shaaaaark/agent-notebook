@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Document } from '@langchain/core/documents';
-import type { RetrievedChunk } from '../rag/rag.service';
+import type { RetrievedChunk } from '../retrieval/retrieval.types';
 
 export type ContextSkipReason = 'source_limit' | 'low_marginal_gain' | 'token_budget';
 

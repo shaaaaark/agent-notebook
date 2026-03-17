@@ -7,6 +7,13 @@ export const appConfig = () => ({
   },
   retrieve: {
     topK: parseInt(process.env.RETRIEVE_TOP_K ?? '8', 10),
+    topKVec: parseInt(process.env.RETRIEVE_TOP_K_VEC ?? '50', 10),
+    topKBm25: parseInt(process.env.RETRIEVE_TOP_K_BM25 ?? '50', 10),
+    fusedTopN: parseInt(process.env.RETRIEVE_FUSED_TOP_N ?? '30', 10),
+    rerankTopM: parseInt(process.env.RERANK_TOP_M ?? '8', 10),
+    rrfK: parseInt(process.env.RETRIEVE_RRF_K ?? '60', 10),
+    rerankModel:
+      process.env.RERANK_MODEL ?? 'cross-encoder/ms-marco-MiniLM-L-6-v2',
   },
   context: {
     tokenBudget: parseInt(process.env.MAX_CONTEXT_TOKENS ?? '2000', 10),
@@ -18,6 +25,7 @@ export const appConfig = () => ({
   },
   guardrails: {
     retrieveTimeoutMs: parseInt(process.env.RETRIEVE_TIMEOUT_MS ?? '500', 10),
+    rerankTimeoutMs: parseInt(process.env.RERANK_TIMEOUT_MS ?? '500', 10),
     llmTimeoutMs: parseInt(process.env.LLM_TIMEOUT_MS ?? '10000', 10),
   },
   openai: {

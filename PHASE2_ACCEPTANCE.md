@@ -1,4 +1,6 @@
-# Phase 2-3 验收与改动收益归档
+# Phase 2-3 验收与阶段成果归档
+
+> 说明：本文档补录了 2026-03-17 前后补齐的 Phase 3 能力项；命令示例统一使用本地后端端口 `6868`。
 
 ## 1. 本次验收标准
 
@@ -13,6 +15,9 @@
 7. `eval/harness.ts` 可读取 30 个 case、调用 `/rag/ask`、计算 Recall@K 与 Context-hit，输出 `metrics.json` 与 `report.md`。
 8. Trace 路径不依赖 `process.cwd()`，支持 `TRACE_LOG_DIR` 配置。
 9. `recordFeedback` 对同一 trace 文件串行执行，避免并发覆盖。
+10. `eval/harness.ts` 支持 `--compare <baseline> <target>`，输出 run 间差异报告。
+11. `eval/collect-failures.ts` 可从 trace 中抽取 clarify / 负反馈样本，沉淀到 `eval/inbox/` 草稿目录。
+12. Phase 3 范围明确收口：回归运行、差异对比、失败样本归集已完成；阈值 hard gate、灰度发布、replay 仍归 Phase 5。
 
 ---
 
@@ -29,7 +34,7 @@
 
 ```bash
 cd server
-npx ts-node scripts/seed.ts --dir ../../md-collection/ai_progress --host http://localhost:3000
+npx ts-node scripts/seed.ts --dir ../../md-collection/ai_progress --host http://localhost:6868
 ```
 
 预期：成功 22、跳过 0、失败 0。
@@ -39,7 +44,7 @@ npx ts-node scripts/seed.ts --dir ../../md-collection/ai_progress --host http://
 命令：
 
 ```bash
-curl "http://localhost:3000/rag/retrieve?q=RAG召回不足&k=8"
+curl "http://localhost:6868/rag/retrieve?q=RAG召回不足&k=8"
 ```
 
 预期：返回 topK chunks，`score` 为正值；RAG 主流程中 Context Builder 会在此基础上做文档级去重、覆盖优先、token 预算截断。
@@ -51,7 +56,7 @@ curl "http://localhost:3000/rag/retrieve?q=RAG召回不足&k=8"
 ```bash
 curl -N -H "Content-Type: application/json" \
   -d '{"question":"什么是 Agent Loop？请给1句话并标注引用"}' \
-  http://localhost:3000/rag/ask
+  http://localhost:6868/rag/ask
 ```
 
 预期：
@@ -67,7 +72,7 @@ curl -N -H "Content-Type: application/json" \
 ```bash
 curl -N -H "Content-Type: application/json" \
   -d '{"question":"量子计算在金融衍生品定价中的具体应用"}' \
-  http://localhost:3000/rag/ask
+  http://localhost:6868/rag/ask
 ```
 
 预期：知识库无相关文档时，返回 clarify 模板文案，`final_status` 为 `clarify`，不调 LLM。
@@ -77,7 +82,7 @@ curl -N -H "Content-Type: application/json" \
 命令（将 `{request_id}` 替换为 2.4 或 2.5 返回的 `request_id`）：
 
 ```bash
-curl "http://localhost:3000/rag/trace/{request_id}"
+curl "http://localhost:6868/rag/trace/{request_id}"
 ```
 
 预期：返回完整 `RequestTrace` JSON，含 `retrieved_chunks`、`selected_chunks`、`final_status` 等字段。
@@ -89,7 +94,7 @@ curl "http://localhost:3000/rag/trace/{request_id}"
 ```bash
 curl -X POST -H "Content-Type: application/json" \
   -d '{"request_id":"{request_id}","score":1}' \
-  http://localhost:3000/rag/feedback
+  http://localhost:6868/rag/feedback
 ```
 
 预期：返回 `{ ok: true, request_id, score }`；再次 `GET /rag/trace/{request_id}` 可见 `user_feedback: 1`。
@@ -100,7 +105,7 @@ curl -X POST -H "Content-Type: application/json" \
 
 ```bash
 cd server
-npx ts-node eval/harness.ts --cases cases --run-id baseline_$(date +%Y%m%d_%H%M) --host http://localhost:3000
+npx ts-node eval/harness.ts --cases cases --run-id baseline_$(date +%Y%m%d_%H%M) --host http://localhost:6868
 ```
 
 预期：
@@ -109,12 +114,42 @@ npx ts-node eval/harness.ts --cases cases --run-id baseline_$(date +%Y%m%d_%H%M)
 - 生成 `eval/runs/{run_id}/trace.jsonl`、`metrics.json`、`report.md`
 - `metrics.json` 含 `recall_at_k`、`context_hit`、`clarify_rate` 等
 
-### 2.9 Trace 路径验证
+### 2.9 Harness Compare 补录
+
+命令：
+
+```bash
+cd server
+npx ts-node eval/harness.ts --compare phase3_real_20260316_1830 phase4_real_20260317_1028
+```
+
+补录说明：
+
+- `server/eval/harness.ts` 已支持 compare 模式
+- 对比结果会输出到 `eval/runs/{target_run_id}/compare_to_{baseline_run_id}.md`
+- 该能力属于 Phase 3 完整闭环的一部分，已在 `server/eval/README.md` 同步说明
+
+### 2.10 Failure Inbox 补录
+
+命令：
+
+```bash
+cd server
+npx ts-node eval/collect-failures.ts --days 7
+```
+
+补录说明：
+
+- 脚本会从 trace 中抽取 `final_status=clarify` 或 `user_feedback=-1` 的失败样本
+- 输出目录默认为 `server/eval/inbox/`（gitignore）
+- 当前 Phase 4 真实回归仍在排障，因此本次仅补录工具能力，不将临时失败样本直接并入正式 cases
+
+### 2.11 Trace 路径验证
 
 - 从 `server/` 目录启动：trace 写入 `server/logs/traces/`
 - 设置 `TRACE_LOG_DIR=/tmp/agent-trace` 后启动：trace 写入 `/tmp/agent-trace/`
 
-### 2.10 前端验收
+### 2.12 前端验收
 
 - clarify/abstain 气泡为黄色背景样式
 - assistant 气泡下方展示 `request_id` 与「标记有帮助」「标记不准确」按钮
@@ -142,6 +177,9 @@ npx ts-node eval/harness.ts --cases cases --run-id baseline_$(date +%Y%m%d_%H%M)
   - 计算 Recall@K、Context-hit、citation_presence_rate
   - 输出 trace.jsonl、metrics.json、report.md
   - SSE 格式校验与 fallback，错误时继续跑
+- `server/eval/collect-failures.ts`
+  - 从 trace 归集 clarify / 负反馈样本
+  - 生成待人工补充的 inbox 草稿
 
 ### 后端修改
 
@@ -164,6 +202,7 @@ npx ts-node eval/harness.ts --cases cases --run-id baseline_$(date +%Y%m%d_%H%M)
 - `server/eval/cases/*.json`
   - 从 20 个 case 扩充至 30 个
 - `server/eval/README.md`
+  - 增加目录结构、compare、collect-failures、Phase 3 边界说明
   - 更新 case 统计与 harness 状态
 
 ### 前端
@@ -206,6 +245,8 @@ npx ts-node eval/harness.ts --cases cases --run-id baseline_$(date +%Y%m%d_%H%M)
 5. **Eval 回归体系**
    - 30 个 case、harness 一键跑回归
    - Recall@K、Context-hit 可量化
+   - run 间 compare 支持回归 diff
+   - failure inbox 支持人工持续补 case
 
 6. **风险修复**
    - Trace 路径不依赖 cwd，支持配置
@@ -222,12 +263,13 @@ npx ts-node eval/harness.ts --cases cases --run-id baseline_$(date +%Y%m%d_%H%M)
 4. recordFeedback 互斥为单进程内存锁，多实例需外部协调。
 5. Feedback 无鉴权与限流，存在滥用风险。
 6. 敏感词正则可能误判（如「金融科技发展」）。
+7. `eval/inbox/` 仍依赖人工标注与回收，不是全自动评测闭环。
 
 ---
 
 ## 6. 下一步建议（对齐 ROADMAP）
 
 1. 进入 Phase 4：混合检索（BM25 + RRF + Rerank），目标 Recall@K ≥ 0.8。
-2. 知识库版本管理：`GET /ingest/status`、重新索引。
+2. 稳定 embedding / rerank 运行环境，避免因降级导致大面积 clarify。
 3. Phase 5：Policy 参数化（policy.yaml）、回归阈值、灰度分桶、Replay 框架。
 4. 持久化与部署：Qdrant、SQLite/PostgreSQL、Docker 化。

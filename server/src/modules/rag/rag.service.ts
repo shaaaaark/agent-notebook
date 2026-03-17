@@ -8,31 +8,33 @@ import {
   ContextBuilderService,
   SkippedChunk,
 } from '../context/context-builder.service';
+import { HybridRetrieverService } from '../retrieval/hybrid-retriever.service';
+import type {
+  KnowledgeBaseStatus,
+  RetrievedChunk,
+  RetrievalResult,
+} from '../retrieval/retrieval.types';
 import { RequestTrace, TraceChunkRecord, TraceService } from '../trace/trace.service';
-
-type VectorEntry = {
-  doc: Document;
-  vec: number[];
-  vecType: 'openai' | 'local';
-};
-
-export type RetrievedChunk = {
-  doc: Document;
-  score: number;
-};
 
 export type RagSource = {
   chunk_id: string;
   source: string;
   score: number;
   snippet: string;
+  score_vec?: number;
+  score_bm25?: number;
+  score_rrf?: number;
+  rerank_score?: number;
+  rank_vec?: number;
+  rank_bm25?: number;
+  rank_final?: number;
 };
 
 export type RagFinalStatus = 'success' | 'clarify' | 'abstain' | 'error';
 
 type PreparedResponse = {
   requestId: string;
-  retrieved: RetrievedChunk[];
+  retrieval: RetrievalResult;
   context: ContextBuilderOutput;
   retrieveLatencyMs: number;
   finalStatus: RagFinalStatus;
@@ -51,74 +53,29 @@ class TimeoutError extends Error {
 @Injectable()
 export class RagService {
   private readonly logger = new Logger(RagService.name);
-  private readonly store: VectorEntry[] = [];
-  private readonly localVecDim = 256;
 
   constructor(
     private readonly llm: LlmProvider,
     private readonly config: ConfigService,
     private readonly contextBuilder: ContextBuilderService,
     private readonly traceService: TraceService,
+    private readonly retriever: HybridRetrieverService,
   ) {}
 
-  private textToLocalVector(text: string): number[] {
-    const vec = new Array<number>(this.localVecDim).fill(0);
-    const tokens = text.toLowerCase().split(/[^a-z0-9\u4e00-\u9fa5]+/).filter(Boolean);
-    for (const token of tokens) {
-      let hash = 0;
-      for (let i = 0; i < token.length; i++) {
-        hash = (hash * 31 + token.charCodeAt(i)) >>> 0;
-      }
-      vec[hash % this.localVecDim] += 1;
-    }
-    return vec;
-  }
-
   async addDocuments(docs: Document[]) {
-    if (!docs.length) return;
-
-    const texts = docs.map((doc) => doc.pageContent);
-    let vectors: number[][];
-    let vecType: 'openai' | 'local' = 'openai';
-    try {
-      vectors = await this.llm.embeddings.embedDocuments(texts);
-    } catch (error) {
-      this.logger.warn(
-        `Embeddings unavailable, fallback to local vectorization: ${(error as Error).message}`,
-      );
-      vectors = texts.map((text) => this.textToLocalVector(text));
-      vecType = 'local';
-    }
-    this.store.push(
-      ...docs.map((doc, index) => ({
-        doc,
-        vec: vectors[index],
-        vecType,
-      })),
-    );
-    this.logger.log(`Added ${docs.length} docs with embeddings (memory store)`);
+    await this.retriever.addDocuments(docs);
   }
 
   deleteBySource(source: string): number {
-    const before = this.store.length;
-    const remaining = this.store.filter((entry) => entry.doc.metadata.source !== source);
-    this.store.length = 0;
-    this.store.push(...remaining);
-    return before - this.store.length;
+    return this.retriever.deleteBySource(source);
   }
 
-  private cosine(a: number[], b: number[]): number {
-    if (a.length !== b.length || !a.length) return 0;
-    let dot = 0;
-    let aNorm = 0;
-    let bNorm = 0;
-    for (let i = 0; i < a.length; i++) {
-      dot += a[i] * b[i];
-      aNorm += a[i] * a[i];
-      bNorm += b[i] * b[i];
-    }
-    const denom = Math.sqrt(aNorm) * Math.sqrt(bNorm);
-    return denom === 0 ? 0 : dot / denom;
+  async rebuildIndex(docGroups?: Array<{ source: string; docs: Document[] }>) {
+    await this.retriever.rebuildIndex(docGroups);
+  }
+
+  getKnowledgeBaseStatus(): KnowledgeBaseStatus {
+    return this.retriever.getStatus();
   }
 
   private buildPrompt(question: string, contextText: string) {
@@ -136,6 +93,21 @@ ${contextText}
       source: String(item.doc.metadata.source ?? item.doc.metadata.filename ?? 'unknown'),
       score: Number(item.score.toFixed(4)),
       snippet: item.doc.pageContent.slice(0, 80),
+      ...(item.scoreVec !== undefined
+        ? { score_vec: Number(item.scoreVec.toFixed(4)) }
+        : {}),
+      ...(item.scoreBm25 !== undefined
+        ? { score_bm25: Number(item.scoreBm25.toFixed(4)) }
+        : {}),
+      ...(item.scoreRrf !== undefined
+        ? { score_rrf: Number(item.scoreRrf.toFixed(4)) }
+        : {}),
+      ...(item.rerankScore !== undefined
+        ? { rerank_score: Number(item.rerankScore.toFixed(4)) }
+        : {}),
+      ...(item.rankVec !== undefined ? { rank_vec: item.rankVec } : {}),
+      ...(item.rankBm25 !== undefined ? { rank_bm25: item.rankBm25 } : {}),
+      ...(item.rankFinal !== undefined ? { rank_final: item.rankFinal } : {}),
     }));
   }
 
@@ -144,6 +116,21 @@ ${contextText}
       chunk_id: String(item.doc.metadata.chunk_id ?? 'unknown'),
       source: String(item.doc.metadata.source ?? item.doc.metadata.filename ?? 'unknown'),
       score: Number(item.score.toFixed(4)),
+      ...(item.scoreVec !== undefined
+        ? { score_vec: Number(item.scoreVec.toFixed(4)) }
+        : {}),
+      ...(item.scoreBm25 !== undefined
+        ? { score_bm25: Number(item.scoreBm25.toFixed(4)) }
+        : {}),
+      ...(item.scoreRrf !== undefined
+        ? { score_rrf: Number(item.scoreRrf.toFixed(4)) }
+        : {}),
+      ...(item.rerankScore !== undefined
+        ? { rerank_score: Number(item.rerankScore.toFixed(4)) }
+        : {}),
+      ...(item.rankVec !== undefined ? { rank_vec: item.rankVec } : {}),
+      ...(item.rankBm25 !== undefined ? { rank_bm25: item.rankBm25 } : {}),
+      ...(item.rankFinal !== undefined ? { rank_final: item.rankFinal } : {}),
     }));
   }
 
@@ -160,6 +147,10 @@ ${contextText}
 
   private hashAnswer(answer: string): string {
     return crypto.createHash('md5').update(answer).digest('hex');
+  }
+
+  private confidenceScore(chunk: RetrievedChunk): number {
+    return chunk.rerankScore ?? chunk.scoreVec ?? chunk.scoreBm25 ?? chunk.score;
   }
 
   private isSensitiveQuery(question: string): boolean {
@@ -208,13 +199,18 @@ ${contextText}
     const tokenBudget = this.config.get<number>('context.tokenBudget') ?? 2000;
     const abstainThreshold = this.config.get<number>('rag.abstainThreshold') ?? 0.35;
 
-    let retrieved: RetrievedChunk[] = [];
+    let retrieval: RetrievalResult = {
+      chunks: [],
+      strategy: 'vector_only',
+      degraded: true,
+      degradeReason: 'not_started',
+    };
     let retrieveTimedOut = false;
     const retrieveStartedAt = Date.now();
 
     try {
-      retrieved = await this.withTimeout(
-        () => this.retrieve(question, topK),
+      retrieval = await this.withTimeout(
+        () => this.retriever.retrieve(question, { topK }),
         retrieveTimeoutMs,
         `Retrieve timed out after ${retrieveTimeoutMs}ms`,
       );
@@ -230,13 +226,13 @@ ${contextText}
     const retrieveLatencyMs = Date.now() - retrieveStartedAt;
     const context = this.contextBuilder.build({
       query: question,
-      candidates: retrieved,
+      candidates: retrieval.chunks,
       tokenBudget,
     });
     const lowConfidence =
       retrieveTimedOut ||
-      !retrieved.length ||
-      retrieved.every((item) => item.score < abstainThreshold) ||
+      !retrieval.chunks.length ||
+      retrieval.chunks.every((item) => this.confidenceScore(item) < abstainThreshold) ||
       context.selected.length === 0;
 
     if (lowConfidence) {
@@ -250,7 +246,14 @@ ${contextText}
 
       return {
         requestId,
-        retrieved,
+        retrieval: {
+          ...retrieval,
+          degraded:
+            retrieval.degraded || retrieveTimedOut || !retrieval.chunks.length,
+          degradeReason:
+            retrieval.degradeReason ??
+            (retrieveTimedOut ? 'retrieve_timeout' : 'low_confidence'),
+        },
         context,
         retrieveLatencyMs,
         finalStatus,
@@ -262,7 +265,7 @@ ${contextText}
 
     return {
       requestId,
-      retrieved,
+      retrieval,
       context,
       retrieveLatencyMs,
       finalStatus: 'success',
@@ -285,7 +288,12 @@ ${contextText}
       timestamp: new Date().toISOString(),
       query_raw: question,
       retrieve_topK: this.config.get<number>('retrieve.topK') ?? 8,
-      retrieved_chunks: this.toTraceChunks(prepared.retrieved),
+      retrieval_strategy: prepared.retrieval.strategy,
+      retrieve_degraded: prepared.retrieval.degraded,
+      ...(prepared.retrieval.degradeReason
+        ? { retrieve_degrade_reason: prepared.retrieval.degradeReason }
+        : {}),
+      retrieved_chunks: this.toTraceChunks(prepared.retrieval.chunks),
       retrieve_latency_ms: prepared.retrieveLatencyMs,
       selected_chunks: prepared.context.selected.map((item) =>
         String(item.doc.metadata.chunk_id ?? 'unknown'),
@@ -334,27 +342,12 @@ ${contextText}
   }
 
   async retrieve(question: string, topK?: number): Promise<RetrievedChunk[]> {
-    if (!this.store.length) return [];
+    const result = await this.retriever.retrieve(question, { topK });
+    return result.chunks;
+  }
 
-    let qVec: number[];
-    let qVecType: 'openai' | 'local' = 'openai';
-    try {
-      qVec = await this.llm.embeddings.embedQuery(question);
-    } catch (error) {
-      this.logger.warn(
-        `Query embedding unavailable, fallback to local vectorization: ${(error as Error).message}`,
-      );
-      qVec = this.textToLocalVector(question);
-      qVecType = 'local';
-    }
-    const k = topK ?? (this.config.get<number>('retrieve.topK') ?? 8);
-    return this.store
-      .map((item) => ({
-        doc: item.doc,
-        score: item.vecType === qVecType ? this.cosine(qVec, item.vec) : 0,
-      }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, k);
+  async retrieveDetailed(question: string, topK?: number): Promise<RetrievalResult> {
+    return this.retriever.retrieve(question, { topK });
   }
 
   async ask(question: string) {

@@ -62,14 +62,32 @@ export class RagController {
     if (topK !== undefined && (Number.isNaN(topK) || topK < 1)) {
       throw new BadRequestException('"k" must be a positive integer');
     }
-    const docs = await this.rag.retrieve(q, topK);
+    const result = await this.rag.retrieveDetailed(q, topK);
     return {
       query: q,
-      topK: docs.length,
-      chunks: docs.map((item) => ({
+      topK: result.chunks.length,
+      strategy: result.strategy,
+      degraded: result.degraded,
+      ...(result.degradeReason ? { degrade_reason: result.degradeReason } : {}),
+      chunks: result.chunks.map((item) => ({
         chunk_id: String(item.doc.metadata.chunk_id ?? 'unknown'),
         source: String(item.doc.metadata.source ?? item.doc.metadata.filename ?? 'unknown'),
         score: Number(item.score.toFixed(4)),
+        ...(item.scoreVec !== undefined
+          ? { score_vec: Number(item.scoreVec.toFixed(4)) }
+          : {}),
+        ...(item.scoreBm25 !== undefined
+          ? { score_bm25: Number(item.scoreBm25.toFixed(4)) }
+          : {}),
+        ...(item.scoreRrf !== undefined
+          ? { score_rrf: Number(item.scoreRrf.toFixed(4)) }
+          : {}),
+        ...(item.rerankScore !== undefined
+          ? { rerank_score: Number(item.rerankScore.toFixed(4)) }
+          : {}),
+        ...(item.rankVec !== undefined ? { rank_vec: item.rankVec } : {}),
+        ...(item.rankBm25 !== undefined ? { rank_bm25: item.rankBm25 } : {}),
+        ...(item.rankFinal !== undefined ? { rank_final: item.rankFinal } : {}),
         pageContent: item.doc.pageContent,
       })),
     };
@@ -123,4 +141,3 @@ export class RagController {
     };
   }
 }
-
