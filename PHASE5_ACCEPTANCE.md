@@ -10,6 +10,7 @@
 - [x] `RequestTrace` 增加 `replay_input`
 - [x] `eval/harness.ts --compare` 输出 gate verdict
 - [x] 新增 `eval/replay.ts` 最小回放脚本
+- [x] `policy.yaml` 已接入 config 读取链路并覆盖关键 retrieval/context/generation/guardrails 参数
 
 ## 验收标准
 - 策略版本号可在 trace 中看到

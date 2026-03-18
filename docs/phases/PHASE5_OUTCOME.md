@@ -18,10 +18,12 @@ Phase 5 已完成第一轮工程化骨架落地：策略配置、评估门禁、
 
 ## 工程价值
 以前这套系统更像“手工调参 + 手工看结果”。
-现在开始具备下面三种工程能力：
+现在开始具备下面四种工程能力：
 1. 策略有版本号
 2. 评估结果有 gate verdict
 3. 单个请求可以最小回放
+4. `policy.yaml` 已能真实覆盖关键运行参数，而不是摆设配置
 
 ## 下一阶段建议
 继续把 `policy.yaml` 的具体参数真正接入 retrieval / context / generation 读取链路，减少硬编码和 env 直读。
+进一步把 gate 从“只看 candidate 当前指标”升级成“同时看 baseline delta + candidate floor”。
