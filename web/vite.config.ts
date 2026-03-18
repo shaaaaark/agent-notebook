@@ -6,8 +6,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/rag': 'http://localhost:8788',
-      '/ingest': 'http://localhost:8788',
+      '/rag': 'http://localhost:9527',
+      '/ingest': 'http://localhost:9527',
     },
   },
 })

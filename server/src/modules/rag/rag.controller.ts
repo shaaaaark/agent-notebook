@@ -97,17 +97,31 @@ export class RagController {
   debug() {
     const baseUrl = this.config.get<string>('openai.baseUrl');
     const model = this.config.get<string>('openai.model');
+    const embeddingBaseUrl = this.config.get<string>('openai.embeddingBaseUrl');
     const embeddingModel = this.config.get<string>('openai.embeddingModel');
     const apiKey = this.config.get<string>('openai.apiKey') ?? '';
+    const embeddingApiKey = this.config.get<string>('openai.embeddingApiKey') ?? '';
     const envKey = process.env.OPENAI_API_KEY ?? '';
+    const envEmbeddingKey = process.env.EMBEDDING_API_KEY ?? '';
     const maskedKey = apiKey.length > 8 ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : apiKey;
+    const maskedEmbeddingKey =
+      embeddingApiKey.length > 8
+        ? `${embeddingApiKey.slice(0, 4)}...${embeddingApiKey.slice(-4)}`
+        : embeddingApiKey;
     const maskedEnvKey = envKey.length > 8 ? `${envKey.slice(0, 4)}...${envKey.slice(-4)}` : envKey;
+    const maskedEnvEmbeddingKey =
+      envEmbeddingKey.length > 8
+        ? `${envEmbeddingKey.slice(0, 4)}...${envEmbeddingKey.slice(-4)}`
+        : envEmbeddingKey;
     return {
       baseUrl,
       model,
+      embeddingBaseUrl,
       embeddingModel,
       apiKey: maskedKey,
+      embeddingApiKey: maskedEmbeddingKey,
       envKey: maskedEnvKey,
+      envEmbeddingKey: maskedEnvEmbeddingKey,
     };
   }
 

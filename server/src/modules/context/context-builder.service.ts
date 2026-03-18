@@ -32,9 +32,10 @@ export class ContextBuilderService {
   constructor(private readonly config: ConfigService) {}
 
   private marginalGain(prev: RetrievedChunk, current: RetrievedChunk): number {
-    const prevConfidence = prev.rerankScore ?? prev.scoreVec ?? prev.scoreBm25 ?? prev.score;
+    const prevConfidence =
+      prev.rerankScore ?? prev.scoreRrf ?? prev.scoreBm25 ?? prev.scoreVec ?? prev.score;
     const currentConfidence =
-      current.rerankScore ?? current.scoreVec ?? current.scoreBm25 ?? current.score;
+      current.rerankScore ?? current.scoreRrf ?? current.scoreBm25 ?? current.scoreVec ?? current.score;
     return prevConfidence - currentConfidence;
   }
 
@@ -42,7 +43,7 @@ export class ContextBuilderService {
     const maxChunksPerSource =
       this.config.get<number>('context.maxChunksPerSource') ?? 2;
     const coverageMinGain =
-      this.config.get<number>('context.coverageMinGain') ?? 0.05;
+      this.config.get<number>('context.coverageMinGain') ?? 0.005;
 
     const selected: RetrievedChunk[] = [];
     const skipped: SkippedChunk[] = [];

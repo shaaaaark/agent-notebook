@@ -57,6 +57,28 @@ export class IngestService {
     };
   }
 
+  listFiles() {
+    return Array.from(this.trackedFiles.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([filename, tracked]) => ({
+        filename,
+        hash: tracked.hash,
+        file_path: tracked.filePath,
+      }));
+  }
+
+  reset() {
+    this.fileHashes.clear();
+    this.trackedFiles.clear();
+    this.rag.clearKnowledgeBase();
+
+    return {
+      ok: true,
+      document_count: 0,
+      chunk_count: 0,
+    };
+  }
+
   async reindexAll() {
     const groups: Array<{ source: string; docs: Document[] }> = [];
 

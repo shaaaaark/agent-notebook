@@ -123,6 +123,15 @@ export class HybridRetrieverService implements OnModuleInit {
     this.touchKnowledgeBase(false);
   }
 
+  clear(): void {
+    this.sourceDocs.clear();
+    this.store = [];
+    this.entryByChunkId.clear();
+    this.bm25 = null;
+    this.kbVersion = this.createKbVersion();
+    this.touchKnowledgeBase(false);
+  }
+
   async retrieve(question: string, options?: RetrieveOptions): Promise<RetrievalResult> {
     const topK = options?.topK ?? (this.config.get<number>('retrieve.topK') ?? 8);
     if (!this.store.length) {
@@ -143,15 +152,29 @@ export class HybridRetrieverService implements OnModuleInit {
     const fusedTopN = this.config.get<number>('retrieve.fusedTopN') ?? 30;
     const rerankTopM = this.config.get<number>('retrieve.rerankTopM') ?? 8;
 
-    const fused = this.fuseRanks(
-      vectorHits.slice(0, topKVec),
-      bm25Hits.slice(0, topKBm25),
+    const limitedVectorHits = vectorHits.slice(0, topKVec);
+    const limitedBm25Hits = bm25Hits.slice(0, topKBm25);
+    const hasLexicalSignal = limitedBm25Hits.some((item) => (item.scoreBm25 ?? 0) > 0);
+
+    let fused = this.fuseRanks(
+      limitedVectorHits,
+      limitedBm25Hits,
       fusedTopN,
     );
 
-    let strategy: RetrievalStrategy = bm25Hits.length ? 'hybrid_rrf' : 'vector_only';
-    let degraded = !bm25Hits.length;
-    let degradeReason = !bm25Hits.length ? 'bm25_unavailable' : undefined;
+    let strategy: RetrievalStrategy = hasLexicalSignal ? 'hybrid_rrf' : 'vector_only';
+    let degraded = !hasLexicalSignal;
+    let degradeReason = !hasLexicalSignal ? 'bm25_unavailable' : undefined;
+
+    if (!hasLexicalSignal) {
+      fused = limitedVectorHits
+        .slice(0, fusedTopN)
+        .map((item, index) => ({
+          ...item,
+          score: item.scoreVec ?? item.score,
+          rankFinal: index + 1,
+        }));
+    }
 
     const rerankResult = await this.reranker.rerank(
       normalizedQuery,
@@ -159,9 +182,10 @@ export class HybridRetrieverService implements OnModuleInit {
       Math.min(rerankTopM, fused.length),
     );
     if (!rerankResult.skipped && rerankResult.chunks.length) {
-      strategy = 'hybrid_rrf_rerank';
+      strategy = hasLexicalSignal ? 'hybrid_rrf_rerank' : 'vector_only';
     }
     if (rerankResult.skipped) {
+      strategy = hasLexicalSignal ? 'hybrid_rrf' : 'vector_only';
       degraded = true;
       degradeReason = rerankResult.reason ?? degradeReason ?? 'rerank_skipped';
     }
@@ -225,11 +249,14 @@ export class HybridRetrieverService implements OnModuleInit {
     }
 
     return this.store
-      .map((item) => ({
-        doc: item.doc,
-        score: item.vecType === qVecType ? this.cosine(qVec, item.vec) : 0,
-        scoreVec: item.vecType === qVecType ? this.cosine(qVec, item.vec) : 0,
-      }))
+      .map((item) => {
+        const similarity = item.vecType === qVecType ? this.cosine(qVec, item.vec) : 0;
+        return {
+          doc: item.doc,
+          score: similarity,
+          scoreVec: similarity,
+        };
+      })
       .sort((a, b) => (b.scoreVec ?? 0) - (a.scoreVec ?? 0))
       .map((item, index) => ({
         ...item,
@@ -340,8 +367,15 @@ export class HybridRetrieverService implements OnModuleInit {
     vecType: 'openai' | 'local';
   }> {
     try {
+      const batchSize = 10;
+      const vectors: number[][] = [];
+      for (let i = 0; i < texts.length; i += batchSize) {
+        const batch = texts.slice(i, i + batchSize);
+        const batchVectors = await this.llm.embeddings.embedDocuments(batch);
+        vectors.push(...batchVectors);
+      }
       return {
-        vectors: await this.llm.embeddings.embedDocuments(texts),
+        vectors,
         vecType: 'openai',
       };
     } catch (error) {
@@ -412,11 +446,49 @@ export class HybridRetrieverService implements OnModuleInit {
     return text.replace(/\s+/g, ' ').trim().toLowerCase();
   }
 
-  private prepareTokens(text: string): string[] {
-    return text
-      .toLowerCase()
-      .split(/[^a-z0-9\u4e00-\u9fa5]+/)
-      .filter(Boolean);
+  private prepareTokens(input: string | string[] | Record<string, unknown>): string[] {
+    const text = this.extractTextForTokenize(input);
+    const normalized = text.toLowerCase();
+    const coarse = normalized.match(/[a-z]+|\d+|[\u4e00-\u9fa5]+/g) ?? [];
+
+    const expanded = coarse.flatMap((token) => {
+      if (/^[\u4e00-\u9fa5]+$/.test(token) && token.length > 1) {
+        const chars = token.split('');
+        const bigrams: string[] = [];
+        for (let i = 0; i < chars.length - 1; i++) {
+          bigrams.push(`${chars[i]}${chars[i + 1]}`);
+        }
+        return [token, ...chars, ...bigrams];
+      }
+      return [token];
+    });
+
+    return Array.from(new Set(expanded));
+  }
+
+  private extractTextForTokenize(input: string | string[] | Record<string, unknown>): string {
+    if (typeof input === 'string') {
+      return input;
+    }
+
+    if (Array.isArray(input)) {
+      return input.join(' ');
+    }
+
+    if (input && typeof input === 'object') {
+      const text = input.text;
+      if (typeof text === 'string') {
+        return text;
+      }
+      if (Array.isArray(text)) {
+        return text.join(' ');
+      }
+      return Object.values(input)
+        .filter((value): value is string => typeof value === 'string')
+        .join(' ');
+    }
+
+    return '';
   }
 
   private getSource(doc: Document): string {

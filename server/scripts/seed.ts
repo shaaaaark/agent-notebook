@@ -4,14 +4,22 @@
  *
  * 用法：
  *   npx ts-node scripts/seed.ts
- *   npx ts-node scripts/seed.ts --dir /path/to/notes --host http://localhost:8788
+ *   npx ts-node scripts/seed.ts --dir /path/to/notes --host http://localhost:9527
+ *   npx ts-node scripts/seed.ts --host http://localhost:9527 --reset
  */
 
 import * as fs from 'fs'
 import * as path from 'path'
 
+type UploadItem = {
+  ok?: boolean
+  skipped?: boolean
+  filename?: string
+  chunks?: number
+}
+
 const DEFAULT_DIR = path.resolve(__dirname, '../../../md-collection/ai_progress')
-const DEFAULT_HOST = 'http://localhost:8788'
+const DEFAULT_HOST = 'http://localhost:9527'
 
 async function main() {
   const args = process.argv.slice(2)
@@ -20,6 +28,7 @@ async function main() {
 
   const dir = dirArg !== -1 ? args[dirArg + 1] : DEFAULT_DIR
   const host = hostArg !== -1 ? args[hostArg + 1] : DEFAULT_HOST
+  const shouldReset = args.includes('--reset')
 
   if (!fs.existsSync(dir)) {
     console.error(`❌ 目录不存在: ${dir}`)
@@ -34,6 +43,15 @@ async function main() {
   if (files.length === 0) {
     console.error(`❌ 目录中没有可导入的文件（.md/.txt/.pdf）: ${dir}`)
     process.exit(1)
+  }
+
+  if (shouldReset) {
+    console.log('🧹 先重置知识库...')
+    const resetRes = await fetch(`${host}/ingest/reset`, { method: 'POST' })
+    if (!resetRes.ok) {
+      console.error(`❌ 重置知识库失败: HTTP ${resetRes.status}`)
+      process.exit(1)
+    }
   }
 
   console.log(`\n📚 共找到 ${files.length} 个文件，开始导入...\n`)
@@ -59,7 +77,10 @@ async function main() {
         body: form as unknown as BodyInit,
       })
 
-      const body = await res.json().catch(() => ({})) as Record<string, unknown>
+      const body = await res.json().catch(() => ({})) as {
+        skipped?: boolean
+        uploaded?: UploadItem[]
+      }
 
       if (!res.ok) {
         console.error(`  ✗ ${filename} — HTTP ${res.status}`)
@@ -67,11 +88,15 @@ async function main() {
         continue
       }
 
-      if (body.skipped) {
+      const upload = body.uploaded?.[0]
+      const wasSkipped = upload?.skipped ?? body.skipped ?? false
+
+      if (wasSkipped) {
         console.log(`  ⊙ ${filename} — 已存在，跳过`)
         skipped++
       } else {
-        console.log(`  ✓ ${filename}`)
+        const chunkInfo = upload?.chunks ? ` — ${upload.chunks} chunks` : ''
+        console.log(`  ✓ ${filename}${chunkInfo}`)
         success++
       }
     } catch (err) {
@@ -83,7 +108,7 @@ async function main() {
   console.log(`\n✅ 导入完成：成功 ${success} | 跳过 ${skipped} | 失败 ${failed}\n`)
 
   if (failed > 0) {
-    console.warn('⚠️  部分文件导入失败，请确认后端已启动（默认 http://localhost:8788）')
+    console.warn('⚠️  部分文件导入失败，请确认后端已启动（默认 http://localhost:9527）')
     process.exit(1)
   }
 }

@@ -74,6 +74,10 @@ export class RagService {
     await this.retriever.rebuildIndex(docGroups);
   }
 
+  clearKnowledgeBase(): void {
+    this.retriever.clear();
+  }
+
   getKnowledgeBaseStatus(): KnowledgeBaseStatus {
     return this.retriever.getStatus();
   }
@@ -170,6 +174,8 @@ ${contextText}
       return false;
     }
 
+    const hasLexicalSignal = retrieval.chunks.some((item) => (item.scoreBm25 ?? 0) > 0);
+
     if (retrieval.strategy === 'hybrid_rrf' || retrieval.strategy === 'hybrid_rrf_rerank') {
       return retrieval.chunks.some(
         (item) =>
@@ -178,6 +184,10 @@ ${contextText}
           (item.scoreVec ?? 0) >= threshold ||
           (item.scoreBm25 ?? 0) >= 1,
       );
+    }
+
+    if (retrieval.strategy === 'vector_only' && hasLexicalSignal) {
+      return true;
     }
 
     return retrieval.chunks.some((item) => this.confidenceScore(item) >= threshold);

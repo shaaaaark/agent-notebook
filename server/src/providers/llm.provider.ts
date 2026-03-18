@@ -21,6 +21,10 @@ export class LlmProvider {
     const baseUrl = this.config.get<string>('openai.baseUrl') ?? '';
     const apiKey = this.config.get<string>('openai.apiKey') ?? '';
     const model = this.config.get<string>('openai.model') ?? '';
+    const embeddingBaseUrl =
+      this.config.get<string>('openai.embeddingBaseUrl') ?? baseUrl;
+    const embeddingApiKey =
+      this.config.get<string>('openai.embeddingApiKey') ?? apiKey;
     const embeddingModel = this.config.get<string>('openai.embeddingModel') ?? '';
     const maxTokens = this.config.get<number>('openai.maxTokens') ?? 1024;
 
@@ -42,9 +46,9 @@ export class LlmProvider {
 
     this.embeddings = new OpenAIEmbeddings({
       model: embeddingModel,
-      apiKey,
+      apiKey: embeddingApiKey,
       configuration: {
-        baseURL: baseUrl,
+        baseURL: embeddingBaseUrl,
         defaultHeaders: {
           'User-Agent': 'curl/8.5.0',
         },

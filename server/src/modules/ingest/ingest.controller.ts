@@ -61,6 +61,16 @@ export class IngestController {
     return this.ingest.getStatus();
   }
 
+  @Get('files')
+  listFiles() {
+    return this.ingest.listFiles();
+  }
+
+  @Post('reset')
+  reset() {
+    return this.ingest.reset();
+  }
+
   @Post('reindex')
   async reindex() {
     return this.ingest.reindexAll();

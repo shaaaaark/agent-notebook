@@ -13,7 +13,7 @@ export const appConfig = () => ({
     rerankTopM: parseInt(process.env.RERANK_TOP_M ?? '8', 10),
     rrfK: parseInt(process.env.RETRIEVE_RRF_K ?? '60', 10),
     rerankModel:
-      process.env.RERANK_MODEL ?? 'cross-encoder/ms-marco-MiniLM-L-6-v2',
+      process.env.RERANK_MODEL ?? 'Xenova/bge-reranker-base',
   },
   context: {
     tokenBudget: parseInt(process.env.MAX_CONTEXT_TOKENS ?? '2000', 10),
@@ -32,7 +32,12 @@ export const appConfig = () => ({
     baseUrl: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
     apiKey: process.env.OPENAI_API_KEY ?? '',
     model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
-    embeddingModel: process.env.OPENAI_EMBEDDING_MODEL ?? 'text-embedding-3-small',
+    embeddingBaseUrl:
+      process.env.EMBEDDING_BASE_URL ?? process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+    embeddingApiKey:
+      process.env.EMBEDDING_API_KEY ?? process.env.OPENAI_API_KEY ?? '',
+    embeddingModel:
+      process.env.EMBEDDING_MODEL ?? process.env.OPENAI_EMBEDDING_MODEL ?? 'text-embedding-3-small',
     maxTokens: parseInt(process.env.LLM_MAX_TOKENS ?? '1024', 10),
   },
   vectorStore: process.env.VECTOR_STORE ?? 'memory',

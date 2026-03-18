@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { RetrievedChunk } from './retrieval.types';
 
@@ -15,11 +15,25 @@ type TextClassifier = (
 ) => Promise<Array<{ label?: string; score?: number }> | { label?: string; score?: number }>;
 
 @Injectable()
-export class LocalRerankerService {
+export class LocalRerankerService implements OnModuleInit {
   private readonly logger = new Logger(LocalRerankerService.name);
   private classifierPromise: Promise<TextClassifier> | null = null;
 
   constructor(private readonly config: ConfigService) {}
+
+  async onModuleInit() {
+    try {
+      await this.withTimeout(
+        () => this.getClassifier(),
+        this.config.get<number>('guardrails.rerankTimeoutMs') ?? 5000,
+        'rerank warmup timed out',
+      );
+      this.logger.log('Local reranker warmup complete');
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Local reranker warmup skipped: ${reason}`);
+    }
+  }
 
   async rerank(
     query: string,
@@ -93,7 +107,7 @@ export class LocalRerankerService {
   private async loadClassifier(): Promise<TextClassifier> {
     const model =
       this.config.get<string>('retrieve.rerankModel') ??
-      'cross-encoder/ms-marco-MiniLM-L-6-v2';
+      'Xenova/bge-reranker-base';
     const { pipeline } = (await import('@xenova/transformers')) as {
       pipeline: (
         task: string,
