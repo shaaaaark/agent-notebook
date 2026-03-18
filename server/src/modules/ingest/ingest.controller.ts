@@ -2,10 +2,10 @@ import {
   Controller,
   Get,
   Post,
-  UploadedFile,
+  UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { IngestService } from './ingest.service';
 import * as path from 'path';
@@ -17,7 +17,7 @@ export class IngestController {
 
   @Post('file')
   @UseInterceptors(
-    FileInterceptor('file', {
+    FilesInterceptor('file', 20, {
       storage: diskStorage({
         destination: './uploads',
         filename: (_req, file, cb) => {
@@ -40,8 +40,20 @@ export class IngestController {
       },
     }),
   )
-  async ingestFile(@UploadedFile() file: Express.Multer.File) {
-    return this.ingest.ingestFile(file.path, file.originalname);
+  async ingestFile(@UploadedFiles() files: Express.Multer.File[]) {
+    if (!files?.length) {
+      return { ok: false, message: 'No files uploaded', uploaded: [] };
+    }
+
+    const uploaded = await Promise.all(
+      files.map((file) => this.ingest.ingestFile(file.path, file.originalname)),
+    );
+
+    return {
+      ok: true,
+      count: uploaded.length,
+      uploaded,
+    };
   }
 
   @Get('status')

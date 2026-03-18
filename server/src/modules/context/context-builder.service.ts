@@ -31,6 +31,13 @@ export interface ContextBuilderOutput {
 export class ContextBuilderService {
   constructor(private readonly config: ConfigService) {}
 
+  private marginalGain(prev: RetrievedChunk, current: RetrievedChunk): number {
+    const prevConfidence = prev.rerankScore ?? prev.scoreVec ?? prev.scoreBm25 ?? prev.score;
+    const currentConfidence =
+      current.rerankScore ?? current.scoreVec ?? current.scoreBm25 ?? current.score;
+    return prevConfidence - currentConfidence;
+  }
+
   build(input: ContextBuilderInput): ContextBuilderOutput {
     const maxChunksPerSource =
       this.config.get<number>('context.maxChunksPerSource') ?? 2;
@@ -58,7 +65,7 @@ export class ContextBuilderService {
       const prevSelected = selected[selected.length - 1];
       if (
         prevSelected &&
-        prevSelected.score - candidate.score < coverageMinGain
+        this.marginalGain(prevSelected, candidate) < coverageMinGain
       ) {
         skipped.push({ chunk: candidate, reason: 'low_marginal_gain' });
         continue;

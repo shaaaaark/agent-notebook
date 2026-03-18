@@ -150,7 +150,37 @@ ${contextText}
   }
 
   private confidenceScore(chunk: RetrievedChunk): number {
-    return chunk.rerankScore ?? chunk.scoreVec ?? chunk.scoreBm25 ?? chunk.score;
+    if (chunk.rerankScore !== undefined) {
+      return chunk.rerankScore;
+    }
+    if (chunk.scoreRrf !== undefined) {
+      return chunk.scoreRrf;
+    }
+    if (chunk.scoreVec !== undefined) {
+      return chunk.scoreVec;
+    }
+    if (chunk.scoreBm25 !== undefined) {
+      return chunk.scoreBm25;
+    }
+    return chunk.score;
+  }
+
+  private hasEnoughSignal(retrieval: RetrievalResult, threshold: number): boolean {
+    if (!retrieval.chunks.length) {
+      return false;
+    }
+
+    if (retrieval.strategy === 'hybrid_rrf' || retrieval.strategy === 'hybrid_rrf_rerank') {
+      return retrieval.chunks.some(
+        (item) =>
+          (item.scoreRrf ?? 0) > 0 ||
+          (item.rerankScore ?? 0) >= threshold ||
+          (item.scoreVec ?? 0) >= threshold ||
+          (item.scoreBm25 ?? 0) >= 1,
+      );
+    }
+
+    return retrieval.chunks.some((item) => this.confidenceScore(item) >= threshold);
   }
 
   private isSensitiveQuery(question: string): boolean {
@@ -231,8 +261,7 @@ ${contextText}
     });
     const lowConfidence =
       retrieveTimedOut ||
-      !retrieval.chunks.length ||
-      retrieval.chunks.every((item) => this.confidenceScore(item) < abstainThreshold) ||
+      !this.hasEnoughSignal(retrieval, abstainThreshold) ||
       context.selected.length === 0;
 
     if (lowConfidence) {
