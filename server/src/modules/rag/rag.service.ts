@@ -83,8 +83,12 @@ export class RagService {
   }
 
   private buildPrompt(question: string, contextText: string) {
-    return `你是知识库助手。请严格基于以下证据回答，每个论点须标注证据编号如 [E1]。
-若证据不足，回复"根据现有资料无法回答，建议补充相关文档"，不得编造内容。
+    return `你是知识库助手。请严格基于以下证据回答，并遵守下面规则：
+1. 先直接回答用户问题，优先总结“根本原因 / 关键结论 / 核心步骤”，不要先说资料不足。
+2. 只要证据里存在可支撑的相关信息，就先给出当前可得结论；只有在证据完全不相关或明显缺失关键前提时，才说明局限。
+3. 每个主要论点都要标注证据编号，如 [E1]、[E2]。
+4. 不得编造证据中没有的信息；如果有不确定之处，用“根据现有证据，可以判断/更可能是”这种说法。
+5. 回答结构尽量简洁：先给结论，再补 2-4 条依据，最后如有必要再说明局限。
 
 ${contextText}
 
@@ -174,16 +178,24 @@ ${contextText}
       return false;
     }
 
+    const topChunk = retrieval.chunks[0];
+    const selectedSignal = [
+      topChunk?.rerankScore,
+      topChunk?.scoreRrf,
+      topChunk?.scoreVec,
+      topChunk?.scoreBm25,
+      topChunk?.score,
+    ].filter((value): value is number => typeof value === 'number');
+
     const hasLexicalSignal = retrieval.chunks.some((item) => (item.scoreBm25 ?? 0) > 0);
+    const hasStrongTopChunk = selectedSignal.some((value) => value >= threshold);
+    const hasMultipleWeakSignals = retrieval.chunks.slice(0, 3).filter((item) => {
+      const signal = item.rerankScore ?? item.scoreRrf ?? item.scoreVec ?? item.score;
+      return signal >= Math.max(threshold * 0.35, 0.01) || (item.scoreBm25 ?? 0) >= 1;
+    }).length >= 2;
 
     if (retrieval.strategy === 'hybrid_rrf' || retrieval.strategy === 'hybrid_rrf_rerank') {
-      return retrieval.chunks.some(
-        (item) =>
-          (item.scoreRrf ?? 0) > 0 ||
-          (item.rerankScore ?? 0) >= threshold ||
-          (item.scoreVec ?? 0) >= threshold ||
-          (item.scoreBm25 ?? 0) >= 1,
-      );
+      return hasStrongTopChunk || hasLexicalSignal || hasMultipleWeakSignals;
     }
 
     if (retrieval.strategy === 'vector_only' && hasLexicalSignal) {
@@ -271,8 +283,7 @@ ${contextText}
     });
     const lowConfidence =
       retrieveTimedOut ||
-      !this.hasEnoughSignal(retrieval, abstainThreshold) ||
-      context.selected.length === 0;
+      (!this.hasEnoughSignal(retrieval, abstainThreshold) && context.selected.length === 0);
 
     if (lowConfidence) {
       const finalStatus: RagFinalStatus = this.isSensitiveQuery(question)
@@ -325,6 +336,17 @@ ${contextText}
     return {
       request_id: prepared.requestId,
       timestamp: new Date().toISOString(),
+      policy_version: this.config.get<string>('policy.version') ?? 'phase5-v1',
+      replay_input: {
+        query: question,
+        selected_chunk_ids: prepared.context.selected.map((item) =>
+          String(item.doc.metadata.chunk_id ?? 'unknown'),
+        ),
+        retrieved_chunk_ids: prepared.retrieval.chunks.map((item) =>
+          String(item.doc.metadata.chunk_id ?? 'unknown'),
+        ),
+        model: this.config.get<string>('openai.model') ?? 'unknown',
+      },
       query_raw: question,
       retrieve_topK: this.config.get<number>('retrieve.topK') ?? 8,
       retrieval_strategy: prepared.retrieval.strategy,

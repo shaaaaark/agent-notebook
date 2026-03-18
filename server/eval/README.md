@@ -71,8 +71,17 @@ npx ts-node eval/harness.ts --compare baseline_20260316 baseline_20260323
 ```
 
 对比结果会写入 `eval/runs/baseline_20260323/compare_to_baseline_20260316.md`。
+现在 compare 报告会额外给出 gate verdict：`PASS / MANUAL_REVIEW / FAIL`。
 
-### 4. 归集失败案例草稿
+### 4. 回放单个请求（Phase 5 MVP）
+
+```bash
+npx ts-node eval/replay.ts --request-id <request_id> --host http://127.0.0.1:9527
+```
+
+用途：根据历史 trace 中保存的 `replay_input.query` 重新触发一次 `/rag/ask`，用于快速复现线上或回归中的单点问题。
+
+### 5. 归集失败案例草稿
 
 ```bash
 npx ts-node eval/collect-failures.ts --days 7
