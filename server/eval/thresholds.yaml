@@ -1,0 +1,21 @@
+hard_gates:
+  recall_at_k:
+    op: gte
+    value: 0.7
+  context_hit:
+    op: gte
+    value: 0.55
+  citation_presence_rate:
+    op: gte
+    value: 0.9
+  error_rate:
+    op: lte
+    value: 0.05
+
+soft_gates:
+  clarify_rate:
+    op: lte
+    value: 0.35
+  abstain_rate:
+    op: lte
+    value: 0.15

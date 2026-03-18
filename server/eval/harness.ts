@@ -20,6 +20,13 @@ type TraceChunkRecord = {
 type RequestTrace = {
   request_id: string;
   timestamp: string;
+  policy_version?: string;
+  replay_input?: {
+    query: string;
+    selected_chunk_ids: string[];
+    retrieved_chunk_ids: string[];
+    model: string;
+  };
   query_raw: string;
   retrieve_topK: number;
   retrieved_chunks: TraceChunkRecord[];
@@ -60,6 +67,22 @@ type CaseRunRecord = {
   context_hit: boolean;
   citation_hit: boolean;
   answer: string;
+};
+
+type GateRule = {
+  op: 'gte' | 'lte';
+  value: number;
+};
+
+type GateConfig = {
+  hard_gates: Record<string, GateRule>;
+  soft_gates: Record<string, GateRule>;
+};
+
+type GateResult = {
+  verdict: 'PASS' | 'MANUAL_REVIEW' | 'FAIL';
+  hardFailures: string[];
+  softFailures: string[];
 };
 
 type HarnessMetrics = {
@@ -259,6 +282,8 @@ async function compareRuns(baselineRunId: string, candidateRunId: string) {
 
   const metricDeltas = buildMetricDeltas(baselineMetrics, candidateMetrics);
   const comparison = compareCaseRuns(baselineRecords, candidateRecords);
+  const gateConfig = await loadGateConfig();
+  const gateResult = evaluateGates(candidateMetrics, gateConfig);
   const report = buildComparisonReport(
     baselineRunId,
     candidateRunId,
@@ -267,6 +292,7 @@ async function compareRuns(baselineRunId: string, candidateRunId: string) {
     comparison.fixedCases,
     comparison.statusChanges,
     comparison.missingCases,
+    gateResult,
   );
   const reportPath = path.join(candidateDir, `compare_to_${baselineRunId}.md`);
 
@@ -274,7 +300,7 @@ async function compareRuns(baselineRunId: string, candidateRunId: string) {
 
   process.stdout.write(`Compare completed: eval/runs/${candidateRunId}/compare_to_${baselineRunId}.md\n`);
   process.stdout.write(
-    `Regressions=${comparison.newFailures.length}, fixed=${comparison.fixedCases.length}, status_changed=${comparison.statusChanges.length}\n`,
+    `Gate=${gateResult.verdict} | Regressions=${comparison.newFailures.length}, fixed=${comparison.fixedCases.length}, status_changed=${comparison.statusChanges.length}\n`,
   );
 }
 
@@ -494,7 +520,7 @@ function compareCaseRuns(
   const baselineMap = new Map(baselineRecords.map((record) => [record.case_id, record]));
   const candidateMap = new Map(candidateRecords.map((record) => [record.case_id, record]));
   const caseIds = Array.from(
-    new Set([...baselineMap.keys(), ...candidateMap.keys()]),
+    new Set(baselineMapKeys(baselineMap).concat(baselineMapKeys(candidateMap))),
   ).sort();
 
   const newFailures: CaseComparison[] = [];
@@ -592,12 +618,19 @@ function buildComparisonReport(
   fixedCases: CaseComparison[],
   statusChanges: CaseComparison[],
   missingCases: string[],
+  gateResult: GateResult,
 ): string {
   const lines = [
     `# Eval Comparison - ${candidateRunId} vs ${baselineRunId}`,
     '',
     `- Baseline: \`${baselineRunId}\``,
     `- Candidate: \`${candidateRunId}\``,
+    '',
+    '## Gate Verdict',
+    '',
+    `- Verdict: **${gateResult.verdict}**`,
+    `- Hard failures: ${gateResult.hardFailures.length ? gateResult.hardFailures.join(', ') : 'None'}`,
+    `- Soft failures: ${gateResult.softFailures.length ? gateResult.softFailures.join(', ') : 'None'}`,
     '',
     '## Metric Deltas',
     '',
@@ -657,6 +690,72 @@ function appendComparisonTable(
       `| ${item.case_id} | ${item.baseline_status} | ${item.candidate_status} | ${toDiffMark(item.baseline_recall, item.candidate_recall)} | ${toDiffMark(item.baseline_context, item.candidate_context)} | ${toDiffMark(item.baseline_citation, item.candidate_citation)} |`,
     );
   }
+}
+
+async function loadGateConfig(): Promise<GateConfig> {
+  const filePath = path.resolve(process.cwd(), 'eval', 'thresholds.yaml');
+  const content = await fs.readFile(filePath, 'utf-8');
+  return parseSimpleYaml(content) as GateConfig;
+}
+
+function evaluateGates(metrics: HarnessMetrics, config: GateConfig): GateResult {
+  const metricMap = metrics as unknown as Record<string, number>;
+  const hardFailures = Object.entries(config.hard_gates ?? {})
+    .filter(([metric, rule]) => !passesRule(metricMap[metric], rule))
+    .map(([metric]) => metric);
+  const softFailures = Object.entries(config.soft_gates ?? {})
+    .filter(([metric, rule]) => !passesRule(metricMap[metric], rule))
+    .map(([metric]) => metric);
+
+  return {
+    verdict: hardFailures.length ? 'FAIL' : softFailures.length ? 'MANUAL_REVIEW' : 'PASS',
+    hardFailures,
+    softFailures,
+  };
+}
+
+function passesRule(value: number | undefined, rule: GateRule): boolean {
+  if (typeof value !== 'number' || Number.isNaN(value)) return false;
+  if (rule.op === 'gte') return value >= rule.value;
+  return value <= rule.value;
+}
+
+function parseSimpleYaml(input: string): Record<string, unknown> {
+  const root: Record<string, any> = {};
+  let section: string | null = null;
+  let metric: string | null = null;
+
+  for (const raw of input.split(/\r?\n/)) {
+    if (!raw.trim() || raw.trim().startsWith('#')) continue;
+
+    const indent = raw.match(/^\s*/)?.[0].length ?? 0;
+    const line = raw.trim();
+
+    if (indent === 0 && line.endsWith(':')) {
+      section = line.slice(0, -1);
+      root[section] = {};
+      metric = null;
+      continue;
+    }
+
+    if (indent === 2 && line.endsWith(':') && section) {
+      metric = line.slice(0, -1);
+      (root[section] as Record<string, unknown>)[metric] = {};
+      continue;
+    }
+
+    if (indent === 4 && section && metric) {
+      const [key, rawValue] = line.split(':').map((item) => item.trim());
+      const value = /^-?\d+(\.\d+)?$/.test(rawValue) ? Number(rawValue) : rawValue;
+      ((root[section] as Record<string, any>)[metric] as Record<string, unknown>)[key] = value;
+    }
+  }
+
+  return root;
+}
+
+function baselineMapKeys(map: Map<string, unknown>): string[] {
+  return Array.from(map.keys());
 }
 
 function toDiffMark(baseline: boolean, candidate: boolean): string {

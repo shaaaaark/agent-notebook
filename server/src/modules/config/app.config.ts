@@ -1,6 +1,9 @@
 export const appConfig = () => ({
   env: process.env.NODE_ENV ?? 'development',
   port: parseInt(process.env.PORT ?? '3000', 10),
+  policy: {
+    version: process.env.POLICY_VERSION ?? 'phase5-v1',
+  },
   chunk: {
     size: parseInt(process.env.CHUNK_SIZE ?? '500', 10),
     step: parseInt(process.env.CHUNK_STEP ?? '200', 10),

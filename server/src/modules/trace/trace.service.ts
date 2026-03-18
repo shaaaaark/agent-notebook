@@ -20,6 +20,13 @@ export type TraceChunkRecord = {
 export interface RequestTrace {
   request_id: string;
   timestamp: string;
+  policy_version?: string;
+  replay_input?: {
+    query: string;
+    selected_chunk_ids: string[];
+    retrieved_chunk_ids: string[];
+    model: string;
+  };
   query_raw: string;
   retrieve_topK: number;
   retrieval_strategy?: string;
