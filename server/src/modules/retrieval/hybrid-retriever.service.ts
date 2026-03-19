@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Document } from '@langchain/core/documents';
 import { randomUUID } from 'crypto';
 import { LlmProvider } from '../../providers/llm.provider';
-import { LocalRerankerService } from './local-reranker.service';
+import { RerankerRouterService } from './reranker-router.service';
 import type {
   KnowledgeBaseStatus,
   RetrievedChunk,
@@ -46,7 +46,7 @@ export class HybridRetrieverService implements OnModuleInit {
   constructor(
     private readonly llm: LlmProvider,
     private readonly config: ConfigService,
-    private readonly reranker: LocalRerankerService,
+    private readonly reranker: RerankerRouterService,
   ) {}
 
   async onModuleInit() {
@@ -234,6 +234,9 @@ export class HybridRetrieverService implements OnModuleInit {
       strategy,
       degraded,
       ...(degradeReason ? { degradeReason } : {}),
+      rerankProvider: rerankResult.provider,
+      rerankSkipped: rerankResult.skipped,
+      ...(rerankResult.reason ? { rerankReason: rerankResult.reason } : {}),
     };
   }
 

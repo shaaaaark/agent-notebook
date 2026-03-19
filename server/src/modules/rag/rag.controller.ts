@@ -69,6 +69,11 @@ export class RagController {
       strategy: result.strategy,
       degraded: result.degraded,
       ...(result.degradeReason ? { degrade_reason: result.degradeReason } : {}),
+      ...(result.rerankProvider ? { rerank_provider: result.rerankProvider } : {}),
+      ...(result.rerankSkipped !== undefined
+        ? { rerank_skipped: result.rerankSkipped }
+        : {}),
+      ...(result.rerankReason ? { rerank_reason: result.rerankReason } : {}),
       chunks: result.chunks.map((item) => ({
         chunk_id: String(item.doc.metadata.chunk_id ?? 'unknown'),
         source: String(item.doc.metadata.source ?? item.doc.metadata.filename ?? 'unknown'),

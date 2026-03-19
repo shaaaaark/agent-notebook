@@ -527,6 +527,15 @@ ${contextText}
       ...(prepared.retrieval.degradeReason
         ? { retrieve_degrade_reason: prepared.retrieval.degradeReason }
         : {}),
+      ...(prepared.retrieval.rerankProvider
+        ? { rerank_provider: prepared.retrieval.rerankProvider }
+        : {}),
+      ...(prepared.retrieval.rerankSkipped !== undefined
+        ? { rerank_skipped: prepared.retrieval.rerankSkipped }
+        : {}),
+      ...(prepared.retrieval.rerankReason
+        ? { rerank_reason: prepared.retrieval.rerankReason }
+        : {}),
       retrieved_chunks: this.toTraceChunks(prepared.retrieval.chunks),
       retrieve_latency_ms: prepared.retrieveLatencyMs,
       selected_chunks: prepared.context.selected.map((item) =>

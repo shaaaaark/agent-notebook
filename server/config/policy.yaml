@@ -11,7 +11,7 @@ retrieve:
   lexical_signal:
     min_bm25_score: 0.01
     min_bm25_hits: 1
-    min_rrf_score: 0.05
+    min_rrf_score: 0.02
 
 context:
   max_context_tokens: 2000

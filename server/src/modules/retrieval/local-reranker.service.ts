@@ -1,13 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { RerankResult, Reranker } from './reranker.types';
 import type { RetrievedChunk } from './retrieval.types';
-
-type RerankResult = {
-  chunks: RetrievedChunk[];
-  skipped: boolean;
-  reason?: string;
-  latencyMs: number;
-};
 
 type TextClassifier = (
   input: string | string[],
@@ -15,7 +9,7 @@ type TextClassifier = (
 ) => Promise<Array<{ label?: string; score?: number }> | { label?: string; score?: number }>;
 
 @Injectable()
-export class LocalRerankerService implements OnModuleInit {
+export class LocalRerankerService implements OnModuleInit, Reranker {
   private readonly logger = new Logger(LocalRerankerService.name);
   private classifierPromise: Promise<TextClassifier> | null = null;
 
@@ -41,7 +35,7 @@ export class LocalRerankerService implements OnModuleInit {
     limit: number,
   ): Promise<RerankResult> {
     if (!chunks.length) {
-      return { chunks: [], skipped: false, latencyMs: 0 };
+      return { chunks: [], skipped: false, latencyMs: 0, provider: 'local' };
     }
 
     const target = chunks.slice(0, Math.max(1, limit));
@@ -81,6 +75,7 @@ export class LocalRerankerService implements OnModuleInit {
         chunks: reranked,
         skipped: false,
         latencyMs: Date.now() - startedAt,
+        provider: 'local',
       };
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -93,6 +88,7 @@ export class LocalRerankerService implements OnModuleInit {
         skipped: true,
         reason,
         latencyMs: Date.now() - startedAt,
+        provider: 'local',
       };
     }
   }

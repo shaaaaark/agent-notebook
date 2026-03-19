@@ -32,6 +32,9 @@ export interface RequestTrace {
   retrieval_strategy?: string;
   retrieve_degraded?: boolean;
   retrieve_degrade_reason?: string;
+  rerank_provider?: string;
+  rerank_skipped?: boolean;
+  rerank_reason?: string;
   retrieved_chunks: TraceChunkRecord[];
   retrieve_latency_ms: number;
   selected_chunks: string[];

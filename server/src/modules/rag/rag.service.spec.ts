@@ -158,4 +158,57 @@ describe('RagService', () => {
 
     expect((rrfBoundaryService as any).hasEnoughSignal(retrieval, 0.5)).toBe(true);
   });
+
+  it('writes rerank observability fields into trace payload', () => {
+    const service = createService({
+      'policy.version': 'phase5-v1',
+      'retrieve.topK': 8,
+      'openai.model': 'gpt-5.4',
+    });
+
+    const trace = (service as any).buildTrace(
+      '什么是状态提升',
+      {
+        requestId: 'req-1',
+        retrieval: {
+          chunks: [
+            {
+              doc: new Document({
+                pageContent: 'React 状态提升',
+                metadata: { chunk_id: 'c1', source: 'a.md' },
+              }),
+              score: 0.9,
+              rerankScore: 0.8,
+              rankFinal: 1,
+            },
+          ],
+          strategy: 'hybrid_rrf_rerank',
+          degraded: false,
+          rerankProvider: 'bailian',
+          rerankSkipped: false,
+        },
+        context: {
+          selected: [],
+          skipped: [],
+          contextText: '',
+          stats: { selectedCount: 0, tokenUsed: 0, truncated: false },
+        },
+        retrieveLatencyMs: 123,
+        finalStatus: 'success',
+        prompt: 'prompt',
+        answer: 'answer',
+        sources: [],
+        queryRiskAction: null,
+      },
+      '答案 [E1]',
+      456,
+      100,
+      50,
+      'success',
+    );
+
+    expect(trace.rerank_provider).toBe('bailian');
+    expect(trace.rerank_skipped).toBe(false);
+    expect(trace.rerank_reason).toBeUndefined();
+  });
 });

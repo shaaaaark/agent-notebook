@@ -57,6 +57,7 @@ guardrails:
     expect(config.retrieve.lexicalSignal.minBm25Score).toBe(0.2);
     expect(config.retrieve.lexicalSignal.minBm25Hits).toBe(2);
     expect(config.retrieve.lexicalSignal.minRrfScore).toBe(0.15);
+    expect(config.retrieve.rerankProvider).toBe('local');
     expect(config.context.maxContextTokens).toBe(4096);
     expect(config.context.tokenBudget).toBe(4096);
     expect(config.context.minSelectedChunks).toBe(5);
@@ -90,6 +91,8 @@ guardrails:
         caseSensitive: false,
       },
     ]);
+    expect(config.bailian.rerankBaseUrl).toBe('https://dashscope.aliyuncs.com');
+    expect(config.bailian.rerankModel).toBe('qwen3-vl-rerank');
     expect(config.openai.temperature).toBe(0.3);
   });
 });

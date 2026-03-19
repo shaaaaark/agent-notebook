@@ -428,6 +428,7 @@ export const appConfig = () => ({
       minBm25Hits: lexicalSignalMinBm25Hits,
       minRrfScore: lexicalSignalMinRrfScore,
     },
+    rerankProvider: process.env.RERANK_PROVIDER ?? 'local',
     rerankModel: process.env.RERANK_MODEL ?? 'Xenova/bge-reranker-base',
   },
   context: {
@@ -501,6 +502,16 @@ export const appConfig = () => ({
         : 'balanced',
     sensitivePatterns,
     riskIntents,
+  },
+  bailian: {
+    rerankBaseUrl:
+      process.env.BAILIAN_RERANK_BASE_URL ??
+      'https://dashscope.aliyuncs.com',
+    rerankApiKey:
+      process.env.BAILIAN_RERANK_API_KEY ??
+      process.env.OPENAI_API_KEY ??
+      '',
+    rerankModel: process.env.BAILIAN_RERANK_MODEL ?? 'qwen3-vl-rerank',
   },
   openai: {
     baseUrl: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',

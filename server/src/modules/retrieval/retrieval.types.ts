@@ -1,4 +1,5 @@
 import { Document } from '@langchain/core/documents';
+import type { RerankProvider } from './reranker.types';
 
 export type RetrievalStrategy =
   | 'vector_only'
@@ -22,6 +23,9 @@ export type RetrievalResult = {
   strategy: RetrievalStrategy;
   degraded: boolean;
   degradeReason?: string;
+  rerankProvider?: RerankProvider;
+  rerankSkipped?: boolean;
+  rerankReason?: string;
 };
 
 export type KnowledgeBaseStatus = {
