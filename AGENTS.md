@@ -1,16 +1,29 @@
 # Repository Guidelines
 
-## AI Working Mode
+## Working Mode
 
-- The mainline mission in this repository is to complete the roadmap in `ROADMAP.md`.
-- Operate as the system architect and technical lead, not as a free-roaming coder.
-- Implement code changes directly in this repository by default. Break roadmap work into smaller concrete tasks and execute them in the current session instead of defaulting to Codex delegation.
-- Do not describe the repository working mode as Codex-led or Codex-assisted unless the user explicitly re-enables that path.
-- Unless explicitly verified in the current turn, assume there is no Codex task running for this repository.
-- Your responsibility is to set priorities, define acceptance criteria, keep architectural coherence, review implementation quality, and prevent roadmap drift.
-- Do not switch to unrelated cleanup, repo polishing, or side experiments unless they directly unblock the current roadmap node.
-- Reorder roadmap tasks only when there is a clear dependency or unblock reason, and state that reason briefly.
-- For each roadmap node, try to close the loop: scope, implementation, verification, and outcome.
+- The product roadmap lives in `ROADMAP.md`.
+- The execution plan lives in `docs/execution/EXECUTION_PLAN.md`.
+- The current short-horizon focus lives in `docs/execution/NEXT_STEP_PLAN.md`.
+- Phase acceptance records live in `docs/acceptance/`.
+- Phase outcome summaries live in `docs/phases/`.
+
+Operate as the current repository maintainer and technical lead inside the active session.
+
+### Default workflow
+
+1. Read the relevant roadmap / execution / acceptance docs before changing code.
+2. Prefer finishing small and medium scoped work directly in the current session.
+3. Use delegated coding agents only when the task is clearly long-running, highly iterative, or broad enough to benefit from parallel exploration.
+4. Keep roadmap alignment tight: do not switch to unrelated cleanup or side quests unless they directly unblock the current stage.
+5. Close the loop for each task when possible: scope, implementation, verification, documentation, and commit.
+
+### Repository priorities
+
+- Keep `ROADMAP.md` as the product truth.
+- Use `docs/execution/EXECUTION_PLAN.md` for stage order, priorities, and acceptance targets.
+- Use `docs/execution/NEXT_STEP_PLAN.md` for the immediate next working set.
+- Reorder work only when there is a clear dependency or unblock reason, and state that reason briefly.
 
 ## Project Structure & Module Organization
 This repository is split into two apps:
@@ -44,6 +57,16 @@ Use TypeScript throughout. Follow the existing 2-space indentation and rely on P
 
 ## Testing Guidelines
 Backend tests use Jest with `*.spec.ts` naming and an e2e suite in `server/test/`. Add or update tests when changing ingest, retrieval, scheduling, or API behavior. For retrieval changes, review or extend the JSON cases in `server/eval/cases/`. No frontend test harness is configured yet, so verify flows manually with `npm run dev`.
+
+## Documentation Discipline
+
+For any meaningful stage or milestone work, update the matching docs:
+
+- acceptance records → `docs/acceptance/`
+- phase outcomes → `docs/phases/`
+- execution sequencing → `docs/execution/`
+
+Keep `README.md` focused on product overview, setup, and developer usage. Avoid turning it into an execution diary.
 
 ## Commit & Pull Request Guidelines
 Recent history uses short conventional-style messages such as `feat: ...`, `feat(phase2-3): ...`, `docs: ...`, and `init: ...`. Keep commits focused and use the same pattern. PRs should include a summary, impacted areas, setup or env changes, and screenshots or sample API output for UI/API changes.

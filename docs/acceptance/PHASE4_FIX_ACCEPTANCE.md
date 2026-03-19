@@ -1,6 +1,6 @@
 # Phase 4 修复后验收（真实回归）
 
-> 范围：对齐 `EXECUTION_PLAN.md` 中 Stage A / Phase 4 检索链路可信化，并补充本轮真实运行态修复结果。
+> 范围：对齐 `docs/execution/EXECUTION_PLAN.md` 中 Stage A / Phase 4 检索链路可信化，并补充本轮真实运行态修复结果。
 
 ## 1. 本轮目标
 

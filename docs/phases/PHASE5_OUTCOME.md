@@ -7,7 +7,7 @@ Phase 5 已完成第一轮工程化骨架落地：策略配置、评估门禁、
 - `server/config/policy.yaml`
 - `server/eval/thresholds.yaml`
 - `server/eval/replay.ts`
-- `PHASE5_PLAN.md`
+- `docs/execution/PHASE5_PLAN.md`
 - `PHASE5_ACCEPTANCE.md`
 
 ## 代码改动
