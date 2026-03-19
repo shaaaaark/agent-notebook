@@ -161,19 +161,20 @@ data:
 | `RETRIEVE_TOP_K_BM25` | `50` | BM25 召回 topK |
 | `RETRIEVE_FUSED_TOP_N` | `30` | RRF 融合后保留的候选数 |
 | `RETRIEVE_RRF_K` | `60` | RRF 公式中的 rank 平滑常数 |
-| `RERANK_TOP_M` | `8` | 进入本地 rerank 的候选数 |
+| `RERANK_TOP_M` | `8` | 进入 rerank 的候选数 |
 | `MAX_CONTEXT_TOKENS` | `2000` | Context Builder token 预算 |
 | `MAX_CHUNKS_PER_SOURCE` | `2` | 单文档最大入 context chunk 数 |
 | `COVERAGE_MIN_GAIN` | `0.05` | 覆盖优先的边际增益阈值 |
 | `ABSTAIN_THRESHOLD` | `0.35` | Clarify/Abstain 阈值 |
 | `RETRIEVE_TIMEOUT_MS` | `500` | 检索总超时 |
-| `RERANK_TIMEOUT_MS` | `500` | 本地 rerank 超时，超时后回退到 RRF 排序 |
+| `RERANK_TIMEOUT_MS` | `500` | rerank 超时，超时后回退到 RRF 排序 |
 | `LLM_TIMEOUT_MS` | `10000` | LLM 超时 |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | API 基础地址 |
 | `OPENAI_API_KEY` | — | API 密钥（必填）|
 | `OPENAI_MODEL` | `gpt-4o-mini` | 对话模型 |
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | 向量化模型 |
-| `RERANK_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | 本地 rerank 模型 |
+| `RERANK_PROVIDER` | `bailian` | rerank provider，当前默认使用百炼 |
+| `RERANK_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | rerank 模型标识；若使用本地 rerank 才会消费本地模型 |
 | `VECTOR_STORE` | `memory` | 向量存储类型（当前仅支持 `memory`）|
 | `SCHEDULE_TIMEZONE` | `Asia/Shanghai` | 定时任务时区 |
 | `REVIEW_CRON` | `0 20 * * *` | 复习任务 Cron 表达式 |

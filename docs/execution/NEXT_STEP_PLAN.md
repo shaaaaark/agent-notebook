@@ -32,7 +32,7 @@
 
 ### 3. 明确 rerank provider 策略
 - 当前环境下本地 `@xenova/transformers` reranker 会因拉取 Hugging Face 模型超时而失败
-- 默认应优先使用 Bailian rerank；本地 rerank 作为离线兜底而不是默认主路径
+- 默认使用 Bailian rerank；本地 rerank 不再作为默认方案，仅保留为离线兜底思路
 - rerank 不可用时，输出清晰的 `degraded / degrade_reason`
 - 避免静默影响回归结论
 
@@ -57,7 +57,7 @@
 
 1. chat provider 目前可能仍带有临时性配置特征，需要后续整理成项目显式配置方案
 2. 知识库仍是内存型，重启后会丢失
-3. 本地 rerank 模型可用性仍可能影响回归稳定性
+3. 若手动切回 local rerank，本地模型拉取仍可能影响回归稳定性
 
 ## 后续入口
 

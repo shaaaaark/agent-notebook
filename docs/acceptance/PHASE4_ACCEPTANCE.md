@@ -4,7 +4,7 @@
 
 ## 1. 本次验收标准
 
-1. 检索链路升级为「向量检索 + BM25 + RRF + 本地 rerank」的混合流水线。
+1. 检索链路升级为「向量检索 + BM25 + RRF + rerank」的混合流水线；当前默认 provider 为 Bailian。
 2. `/rag/retrieve` 返回混合检索调试字段：`strategy`、`degraded`、`degrade_reason`，以及每个 chunk 的向量/BM25/RRF/rerank 分数与排序位次。
 3. rerank 超时或模型不可用时自动降级到 RRF 结果，并保留可观测字段。
 4. `GET /ingest/status` 返回 `document_count`、`chunk_count`、`last_updated_at`、`kb_version`。
