@@ -32,6 +32,14 @@
 
 ## 项目结构
 
+### 文档导航
+
+- `ROADMAP.md`：产品路线图与阶段目标
+- `docs/execution/`：执行计划与当前下一步
+- `docs/acceptance/`：阶段验收记录
+- `docs/phases/`：阶段成果与设计总结
+
+
 ```
 agent-notebook/
 ├── server/                        # NestJS 后端（端口 8788）
@@ -54,6 +62,10 @@ agent-notebook/
 │   └── src/
 │       ├── App.tsx                # 主界面（侧栏上传 + 主聊天区）
 │       └── App.css                # 样式（暖纸色主题）
+├── docs/
+│   ├── acceptance/               # 阶段验收记录
+│   ├── execution/                # 执行计划 / 下一步 / 阶段计划
+│   └── phases/                   # 阶段成果文档
 ├── .gitignore
 └── ROADMAP.md                     # 7 阶段演进路线图
 ```
@@ -180,7 +192,7 @@ Phase 5     参数化发布 + 灰度分桶 + Replay 框架
 Phase 6     持久化（Qdrant + SQLite）+ Docker 部署
 ```
 
-详细实现规划见 [ROADMAP.md](./ROADMAP.md)。
+详细实现规划见 [ROADMAP.md](./ROADMAP.md)。执行顺序与当前优先级见 [`docs/execution/EXECUTION_PLAN.md`](./docs/execution/EXECUTION_PLAN.md)。
 
 ## 回归测试
 

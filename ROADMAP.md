@@ -434,6 +434,14 @@ replay(request_id):
 
 ---
 
+## 文档导航
+
+- `ROADMAP.md`：产品路线图与目标边界
+- `docs/execution/EXECUTION_PLAN.md`：执行顺序、阶段优先级、验收入口
+- `docs/execution/NEXT_STEP_PLAN.md`：当前短期行动板
+- `docs/acceptance/`：阶段验收记录
+- `docs/phases/`：阶段成果总结
+
 ## 里程碑
 
 | 里程碑 | 目标周 | 交付标准 |
