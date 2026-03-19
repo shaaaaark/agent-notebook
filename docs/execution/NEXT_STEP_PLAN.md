@@ -30,7 +30,9 @@
 - 降低泛泛 chunk 抢预算的概率
 - 提高真正命中问题根因的 chunk 进入最终 context 的概率
 
-### 3. 明确 rerank 降级语义
+### 3. 明确 rerank provider 策略
+- 当前环境下本地 `@xenova/transformers` reranker 会因拉取 Hugging Face 模型超时而失败
+- 默认应优先使用 Bailian rerank；本地 rerank 作为离线兜底而不是默认主路径
 - rerank 不可用时，输出清晰的 `degraded / degrade_reason`
 - 避免静默影响回归结论
 
