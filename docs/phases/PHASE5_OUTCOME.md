@@ -26,4 +26,10 @@ Phase 5 已完成第一轮工程化骨架落地：策略配置、评估门禁、
 
 ## 下一阶段建议
 继续把 `policy.yaml` 的具体参数真正接入 retrieval / context / generation 读取链路，减少硬编码和 env 直读。
-进一步把 gate 从“只看 candidate 当前指标”升级成“同时看 baseline delta + candidate floor”。
+
+## baseline 对比门禁新增（本轮已验证）
+- `server/eval/thresholds.yaml` 新增 `baseline_delta.hard_regressions` 和 `baseline_delta.soft_regressions`
+- `eval/harness.ts --compare` 现同时执行 candidate floor 与 baseline delta 判定
+- compare 报告新增 `Gate Verdict`、`Baseline hard regressions`、`Baseline soft regressions`、`Baseline improvements`
+- 本地 smoke 验证使用 `_baseline_smoke` 对比 `_candidate_smoke`，结果为 `FAIL`
+- 本地 smoke 门禁命中：hard failures=`recall_at_k, context_hit`，manual review=`clarify_rate`，baseline hard regressions=`recall_at_k, context_hit`，baseline soft regressions=`clarify_rate`

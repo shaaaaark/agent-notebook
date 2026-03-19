@@ -19,3 +19,25 @@ soft_gates:
   abstain_rate:
     op: lte
     value: 0.15
+
+baseline_delta:
+  hard_regressions:
+    recall_at_k:
+      direction: down
+      max_delta: 0.05
+    context_hit:
+      direction: down
+      max_delta: 0.05
+    citation_presence_rate:
+      direction: down
+      max_delta: 0.03
+    error_rate:
+      direction: up
+      max_delta: 0.02
+  soft_regressions:
+    clarify_rate:
+      direction: up
+      max_delta: 0.05
+    abstain_rate:
+      direction: up
+      max_delta: 0.03

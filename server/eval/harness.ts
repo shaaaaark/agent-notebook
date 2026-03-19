@@ -74,15 +74,27 @@ type GateRule = {
   value: number;
 };
 
+type DeltaRule = {
+  direction: 'up' | 'down';
+  max_delta: number;
+};
+
 type GateConfig = {
   hard_gates: Record<string, GateRule>;
   soft_gates: Record<string, GateRule>;
+  baseline_delta?: {
+    hard_regressions?: Record<string, DeltaRule>;
+    soft_regressions?: Record<string, DeltaRule>;
+  };
 };
 
 type GateResult = {
   verdict: 'PASS' | 'MANUAL_REVIEW' | 'FAIL';
   hardFailures: string[];
   softFailures: string[];
+  baselineHardRegressions: string[];
+  baselineSoftRegressions: string[];
+  baselineImprovements: string[];
 };
 
 type HarnessMetrics = {
@@ -101,10 +113,21 @@ type HarnessMetrics = {
 
 type MetricDelta = {
   label: string;
+  key: keyof ComparableMetrics;
   baseline: number;
   candidate: number;
   delta: number;
 };
+
+type ComparableMetrics = Pick<
+  HarnessMetrics,
+  | 'recall_at_k'
+  | 'context_hit'
+  | 'citation_presence_rate'
+  | 'clarify_rate'
+  | 'abstain_rate'
+  | 'error_rate'
+>;
 
 type CaseComparison = {
   case_id: string;
@@ -283,7 +306,7 @@ async function compareRuns(baselineRunId: string, candidateRunId: string) {
   const metricDeltas = buildMetricDeltas(baselineMetrics, candidateMetrics);
   const comparison = compareCaseRuns(baselineRecords, candidateRecords);
   const gateConfig = await loadGateConfig();
-  const gateResult = evaluateGates(candidateMetrics, gateConfig);
+  const gateResult = evaluateGates(baselineMetrics, candidateMetrics, gateConfig);
   const report = buildComparisonReport(
     baselineRunId,
     candidateRunId,
@@ -494,17 +517,48 @@ function buildMetricDeltas(
   candidate: HarnessMetrics,
 ): MetricDelta[] {
   return [
-    { label: 'Recall@K', baseline: baseline.recall_at_k, candidate: candidate.recall_at_k, delta: roundDelta(candidate.recall_at_k - baseline.recall_at_k) },
-    { label: 'Context-hit', baseline: baseline.context_hit, candidate: candidate.context_hit, delta: roundDelta(candidate.context_hit - baseline.context_hit) },
+    {
+      label: 'Recall@K',
+      key: 'recall_at_k',
+      baseline: baseline.recall_at_k,
+      candidate: candidate.recall_at_k,
+      delta: roundDelta(candidate.recall_at_k - baseline.recall_at_k),
+    },
+    {
+      label: 'Context-hit',
+      key: 'context_hit',
+      baseline: baseline.context_hit,
+      candidate: candidate.context_hit,
+      delta: roundDelta(candidate.context_hit - baseline.context_hit),
+    },
     {
       label: 'Citation presence',
+      key: 'citation_presence_rate',
       baseline: baseline.citation_presence_rate,
       candidate: candidate.citation_presence_rate,
       delta: roundDelta(candidate.citation_presence_rate - baseline.citation_presence_rate),
     },
-    { label: 'Clarify rate', baseline: baseline.clarify_rate, candidate: candidate.clarify_rate, delta: roundDelta(candidate.clarify_rate - baseline.clarify_rate) },
-    { label: 'Abstain rate', baseline: baseline.abstain_rate, candidate: candidate.abstain_rate, delta: roundDelta(candidate.abstain_rate - baseline.abstain_rate) },
-    { label: 'Error rate', baseline: baseline.error_rate, candidate: candidate.error_rate, delta: roundDelta(candidate.error_rate - baseline.error_rate) },
+    {
+      label: 'Clarify rate',
+      key: 'clarify_rate',
+      baseline: baseline.clarify_rate,
+      candidate: candidate.clarify_rate,
+      delta: roundDelta(candidate.clarify_rate - baseline.clarify_rate),
+    },
+    {
+      label: 'Abstain rate',
+      key: 'abstain_rate',
+      baseline: baseline.abstain_rate,
+      candidate: candidate.abstain_rate,
+      delta: roundDelta(candidate.abstain_rate - baseline.abstain_rate),
+    },
+    {
+      label: 'Error rate',
+      key: 'error_rate',
+      baseline: baseline.error_rate,
+      candidate: candidate.error_rate,
+      delta: roundDelta(candidate.error_rate - baseline.error_rate),
+    },
   ];
 }
 
@@ -630,7 +684,10 @@ function buildComparisonReport(
     '',
     `- Verdict: **${gateResult.verdict}**`,
     `- Hard failures: ${gateResult.hardFailures.length ? gateResult.hardFailures.join(', ') : 'None'}`,
-    `- Soft failures: ${gateResult.softFailures.length ? gateResult.softFailures.join(', ') : 'None'}`,
+    `- Manual review: ${gateResult.softFailures.length ? gateResult.softFailures.join(', ') : 'None'}`,
+    `- Baseline hard regressions: ${gateResult.baselineHardRegressions.length ? gateResult.baselineHardRegressions.join(', ') : 'None'}`,
+    `- Baseline soft regressions: ${gateResult.baselineSoftRegressions.length ? gateResult.baselineSoftRegressions.join(', ') : 'None'}`,
+    `- Baseline improvements: ${gateResult.baselineImprovements.length ? gateResult.baselineImprovements.join(', ') : 'None'}`,
     '',
     '## Metric Deltas',
     '',
@@ -698,8 +755,12 @@ async function loadGateConfig(): Promise<GateConfig> {
   return parseSimpleYaml(content) as GateConfig;
 }
 
-function evaluateGates(metrics: HarnessMetrics, config: GateConfig): GateResult {
-  const metricMap = metrics as unknown as Record<string, number>;
+function evaluateGates(
+  baselineMetrics: HarnessMetrics | null,
+  candidateMetrics: HarnessMetrics,
+  config: GateConfig,
+): GateResult {
+  const metricMap = candidateMetrics as unknown as Record<string, number>;
   const hardFailures = Object.entries(config.hard_gates ?? {})
     .filter(([metric, rule]) => !passesRule(metricMap[metric], rule))
     .map(([metric]) => metric);
@@ -707,11 +768,96 @@ function evaluateGates(metrics: HarnessMetrics, config: GateConfig): GateResult 
     .filter(([metric, rule]) => !passesRule(metricMap[metric], rule))
     .map(([metric]) => metric);
 
+  const baselineCheck = evaluateBaselineDelta(baselineMetrics, candidateMetrics, config);
+  const verdict = hardFailures.length || baselineCheck.hardRegressions.length
+    ? 'FAIL'
+    : softFailures.length || baselineCheck.softRegressions.length
+      ? 'MANUAL_REVIEW'
+      : 'PASS';
+
   return {
-    verdict: hardFailures.length ? 'FAIL' : softFailures.length ? 'MANUAL_REVIEW' : 'PASS',
+    verdict,
     hardFailures,
     softFailures,
+    baselineHardRegressions: baselineCheck.hardRegressions,
+    baselineSoftRegressions: baselineCheck.softRegressions,
+    baselineImprovements: baselineCheck.improvements,
   };
+}
+
+function evaluateBaselineDelta(
+  baselineMetrics: HarnessMetrics | null,
+  candidateMetrics: HarnessMetrics,
+  config: GateConfig,
+): {
+  hardRegressions: string[];
+  softRegressions: string[];
+  improvements: string[];
+} {
+  if (!baselineMetrics || !config.baseline_delta) {
+    return { hardRegressions: [], softRegressions: [], improvements: [] };
+  }
+
+  const baseline = baselineMetrics as unknown as Record<string, number>;
+  const candidate = candidateMetrics as unknown as Record<string, number>;
+  const hardRegressions = Object.entries(config.baseline_delta.hard_regressions ?? {})
+    .filter(([metric, rule]) => exceedsDeltaRule(baseline[metric], candidate[metric], rule))
+    .map(([metric]) => metric);
+  const softRegressions = Object.entries(config.baseline_delta.soft_regressions ?? {})
+    .filter(([metric, rule]) => exceedsDeltaRule(baseline[metric], candidate[metric], rule))
+    .map(([metric]) => metric);
+  const improvements = collectImprovements(baselineMetrics, candidateMetrics, config);
+
+  return { hardRegressions, softRegressions, improvements };
+}
+
+function collectImprovements(
+  baselineMetrics: HarnessMetrics,
+  candidateMetrics: HarnessMetrics,
+  config: GateConfig,
+): string[] {
+  const baseline = baselineMetrics as unknown as Record<string, number>;
+  const candidate = candidateMetrics as unknown as Record<string, number>;
+  const allRules = {
+    ...(config.baseline_delta?.hard_regressions ?? {}),
+    ...(config.baseline_delta?.soft_regressions ?? {}),
+  };
+
+  return Object.entries(allRules)
+    .filter(([metric, rule]) => isImprovement(baseline[metric], candidate[metric], rule))
+    .map(([metric]) => metric);
+}
+
+function exceedsDeltaRule(
+  baselineValue: number | undefined,
+  candidateValue: number | undefined,
+  rule: DeltaRule,
+): boolean {
+  if (!isFiniteNumber(baselineValue) || !isFiniteNumber(candidateValue)) {
+    return false;
+  }
+
+  const delta = candidateValue - baselineValue;
+  if (rule.direction === 'down') {
+    return delta < 0 && Math.abs(delta) > rule.max_delta;
+  }
+  return delta > 0 && delta > rule.max_delta;
+}
+
+function isImprovement(
+  baselineValue: number | undefined,
+  candidateValue: number | undefined,
+  rule: DeltaRule,
+): boolean {
+  if (!isFiniteNumber(baselineValue) || !isFiniteNumber(candidateValue)) {
+    return false;
+  }
+
+  const delta = candidateValue - baselineValue;
+  if (rule.direction === 'down') {
+    return delta > 0;
+  }
+  return delta < 0;
 }
 
 function passesRule(value: number | undefined, rule: GateRule): boolean {
@@ -720,9 +866,14 @@ function passesRule(value: number | undefined, rule: GateRule): boolean {
   return value <= rule.value;
 }
 
+function isFiniteNumber(value: number | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
 function parseSimpleYaml(input: string): Record<string, unknown> {
   const root: Record<string, any> = {};
   let section: string | null = null;
+  let subsection: string | null = null;
   let metric: string | null = null;
 
   for (const raw of input.split(/\r?\n/)) {
@@ -734,20 +885,41 @@ function parseSimpleYaml(input: string): Record<string, unknown> {
     if (indent === 0 && line.endsWith(':')) {
       section = line.slice(0, -1);
       root[section] = {};
+      subsection = null;
       metric = null;
       continue;
     }
 
     if (indent === 2 && line.endsWith(':') && section) {
-      metric = line.slice(0, -1);
-      (root[section] as Record<string, unknown>)[metric] = {};
+      const key = line.slice(0, -1);
+      if (section === 'baseline_delta') {
+        subsection = key;
+        (root[section] as Record<string, unknown>)[subsection] = {};
+        metric = null;
+      } else {
+        metric = key;
+        (root[section] as Record<string, unknown>)[metric] = {};
+      }
       continue;
     }
 
-    if (indent === 4 && section && metric) {
+    if (indent === 4 && line.endsWith(':') && section === 'baseline_delta' && subsection) {
+      metric = line.slice(0, -1);
+      ((root[section] as Record<string, any>)[subsection] as Record<string, unknown>)[metric] = {};
+      continue;
+    }
+
+    if (indent === 4 && section && metric && section !== 'baseline_delta') {
       const [key, rawValue] = line.split(':').map((item) => item.trim());
       const value = /^-?\d+(\.\d+)?$/.test(rawValue) ? Number(rawValue) : rawValue;
       ((root[section] as Record<string, any>)[metric] as Record<string, unknown>)[key] = value;
+      continue;
+    }
+
+    if (indent === 6 && section === 'baseline_delta' && subsection && metric) {
+      const [key, rawValue] = line.split(':').map((item) => item.trim());
+      const value = /^-?\d+(\.\d+)?$/.test(rawValue) ? Number(rawValue) : rawValue;
+      (((root[section] as Record<string, any>)[subsection] as Record<string, any>)[metric] as Record<string, unknown>)[key] = value;
     }
   }
 
