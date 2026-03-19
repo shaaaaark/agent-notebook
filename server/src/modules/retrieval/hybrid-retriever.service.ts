@@ -151,16 +151,27 @@ export class HybridRetrieverService implements OnModuleInit {
     const topKBm25 = this.config.get<number>('retrieve.topKBm25') ?? 50;
     const fusedTopN = this.config.get<number>('retrieve.fusedTopN') ?? 30;
     const rerankTopM = this.config.get<number>('retrieve.rerankTopM') ?? 8;
+    const lexicalSignalMinBm25Score =
+      this.config.get<number>('retrieve.lexicalSignal.minBm25Score') ?? 0.01;
+    const lexicalSignalMinBm25Hits = Math.max(
+      1,
+      this.config.get<number>('retrieve.lexicalSignal.minBm25Hits') ?? 1,
+    );
+    const lexicalSignalMinRrfScore =
+      this.config.get<number>('retrieve.lexicalSignal.minRrfScore') ?? 0.03;
 
     const limitedVectorHits = vectorHits.slice(0, topKVec);
     const limitedBm25Hits = bm25Hits.slice(0, topKBm25);
-    const hasLexicalSignal = limitedBm25Hits.some((item) => (item.scoreBm25 ?? 0) > 0);
+    const qualifiedBm25Hits = limitedBm25Hits.filter(
+      (item) => (item.scoreBm25 ?? 0) >= lexicalSignalMinBm25Score,
+    );
+    const hasLexicalSignal = qualifiedBm25Hits.length >= lexicalSignalMinBm25Hits;
 
     let fused = this.fuseRanks(
       limitedVectorHits,
-      limitedBm25Hits,
+      qualifiedBm25Hits,
       fusedTopN,
-    );
+    ).filter((item) => (item.scoreRrf ?? 0) >= lexicalSignalMinRrfScore);
 
     let strategy: RetrievalStrategy = hasLexicalSignal ? 'hybrid_rrf' : 'vector_only';
     let degraded = !hasLexicalSignal;

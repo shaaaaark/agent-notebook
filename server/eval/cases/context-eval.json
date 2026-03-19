@@ -51,7 +51,7 @@
   {
     "case_id": "context-005",
     "category": "context_builder",
-    "question": "为什么 Context Builder 要用 coverage_min_gain 过滤边际增益低的 chunk？",
+    "question": "为什么 Context Builder 要用 min_incremental_coverage 过滤边际增益低的 chunk？",
     "expected_points": [
       "避免大量相似 chunk 重复占用上下文窗口",
       "把 token 预算留给覆盖不同子主题的证据",

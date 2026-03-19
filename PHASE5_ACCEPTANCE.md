@@ -57,7 +57,31 @@
 - baseline hard regressions：`recall_at_k`、`context_hit`
 - baseline soft regressions：`clarify_rate`
 
+## 本节点补充（policy runtime wiring）
+- `context.min_selected_chunks` 已实际控制 context builder 的最小保留块数
+- `context.min_incremental_coverage` 已作为唯一运行时字段接入
+- `retrieve.min_score_threshold` 已参与低置信判定，不再只停留在配置层
+- `retrieve.lexical_signal.min_bm25_score`、`retrieve.lexical_signal.min_bm25_hits`、`retrieve.lexical_signal.min_rrf_score` 已共同接入 hybrid retrieval 与低信号 guardrail
+- `context.max_context_tokens` 已作为主配置名接入运行时；`context.token_budget` 仍只保留为 budget 语义别名
+- `generation.answer_strategy`、`generation.require_citations`、`generation.max_evidence_points` 已驱动回答 prompt 策略
+- `generation.clarify_message_template`、`generation.abstain_message_template` 已驱动 clarify / abstain 兜底话术
+- `generation.temperature` 已透传到 LLM completion 与 stream 请求
+- `guardrails.weak_signal_ratio`、`weak_signal_floor`、`weak_signal_hits`、`weak_signal_window` 已驱动低信号判定
+- 高风险 query 识别统一由 `guardrails.sensitive_patterns[]` + `guardrails.risk_intents[]` 结构化规则驱动，并由 `guardrails.enforcement_mode` 控制累计命中后的动作分流，支持 `keyword` / `regex` / `phrase` + `clarify` / `abstain` / `allow_with_warning`
+
+## Policy 可调 vs 代码常量
+### 当前可调（policy）
+- retrieval：`top_k*`、`fused_top_n`、`rerank_top_m`、`rrf_k`、`min_score_threshold`、`lexical_signal.*`
+- context：`max_context_tokens`、`max_chunks_per_source`、`min_selected_chunks`、`min_incremental_coverage`
+- generation：`model`、`max_tokens`、`temperature`、`answer_strategy`、`require_citations`、`max_evidence_points`、clarify/abstain template
+- guardrails：`abstain_threshold`、各类 timeout、`enforcement_mode`、`sensitive_patterns[]`、`risk_intents[]`、`weak_signal_*`
+
+### 仍为代码常量
+- `allow_with_warning` 的 warning 前缀文案仍是代码常量
+- query risk 累计分到 low / medium / high 的阈值仍在 `rag.service.ts` 内固定为轻量 v1 规则，不单独外置
+- context token 估算仍使用当前启发式算法，不是 policy 化 tokenizer
+
 ## 已知限制
-- `policy.yaml` 目前已落地为配置文件，但业务参数尚未全部改为从 YAML 热读取
+- `allow_with_warning` 当前使用固定 warning 前缀，而不是独立模板配置
 - replay 目前重放的是 query 级别，不是全量 deterministic replay
 - baseline delta 仅在 `eval/harness.ts --compare` 模式参与门禁；单次 run 仍只生成 candidate metrics

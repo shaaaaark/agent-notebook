@@ -16,6 +16,7 @@ export class LlmProvider {
   private readonly apiKey: string;
   private readonly model: string;
   private readonly maxTokens: number;
+  private readonly temperature: number;
 
   constructor(private readonly config: ConfigService) {
     const baseUrl = this.config.get<string>('openai.baseUrl') ?? '';
@@ -27,14 +28,17 @@ export class LlmProvider {
       this.config.get<string>('openai.embeddingApiKey') ?? apiKey;
     const embeddingModel = this.config.get<string>('openai.embeddingModel') ?? '';
     const maxTokens = this.config.get<number>('openai.maxTokens') ?? 1024;
+    const temperature = this.config.get<number>('openai.temperature') ?? 0;
 
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.apiKey = apiKey;
     this.model = model;
     this.maxTokens = maxTokens;
+    this.temperature = temperature;
 
     this.chat = new ChatOpenAI({
       model,
+      temperature,
       apiKey,
       configuration: {
         baseURL: baseUrl,
@@ -66,6 +70,7 @@ export class LlmProvider {
       model: this.model,
       messages: [{ role: 'user', content: prompt }],
       max_tokens: this.maxTokens,
+      temperature: this.temperature,
       stream: true,
     };
 
@@ -140,6 +145,7 @@ export class LlmProvider {
       model: this.model,
       messages: [{ role: 'user', content: prompt }],
       max_tokens: this.maxTokens,
+      temperature: this.temperature,
       stream: false,
     };
 

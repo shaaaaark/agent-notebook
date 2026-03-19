@@ -31,6 +31,16 @@ export type RagSource = {
 };
 
 export type RagFinalStatus = 'success' | 'clarify' | 'abstain' | 'error';
+type QueryRiskAction = 'clarify' | 'abstain' | 'allow_with_warning';
+type QueryRiskRule = {
+  id?: string;
+  name?: string;
+  type: 'keyword' | 'regex' | 'phrase';
+  pattern: string;
+  weight?: number;
+  action: QueryRiskAction;
+  caseSensitive?: boolean;
+};
 
 type PreparedResponse = {
   requestId: string;
@@ -41,6 +51,7 @@ type PreparedResponse = {
   prompt: string;
   answer?: string;
   sources: RagSource[];
+  queryRiskAction: QueryRiskAction | null;
 };
 
 class TimeoutError extends Error {
@@ -83,12 +94,34 @@ export class RagService {
   }
 
   private buildPrompt(question: string, contextText: string) {
+    const answerStrategy =
+      this.config.get<string>('generation.answerStrategy') ?? 'direct_grounded';
+    const requireCitations =
+      this.config.get<boolean>('generation.requireCitations') ?? true;
+    const maxEvidencePoints = Math.max(
+      2,
+      this.config.get<number>('generation.maxEvidencePoints') ?? 4,
+    );
+    const answerRule =
+      answerStrategy === 'cautious_grounded'
+        ? this.config.get<string>(
+            'generation.cautiousGroundedAnswerRuleTemplate',
+          ) ??
+          '1. 先说明当前证据能确认的结论范围，再回答用户问题；如果证据不能覆盖关键前提，要明确指出。'
+        : this.config.get<string>(
+            'generation.directGroundedAnswerRuleTemplate',
+          ) ??
+          '1. 先直接回答用户问题，优先总结“根本原因 / 关键结论 / 核心步骤”，不要先说资料不足。';
+    const citationRule = requireCitations
+      ? '3. 每个主要论点都要标注证据编号，如 [E1]、[E2]。'
+      : '3. 引用证据编号是推荐项；若答案非常简短可不逐句标注，但不得脱离证据。';
+
     return `你是知识库助手。请严格基于以下证据回答，并遵守下面规则：
-1. 先直接回答用户问题，优先总结“根本原因 / 关键结论 / 核心步骤”，不要先说资料不足。
+${answerRule}
 2. 只要证据里存在可支撑的相关信息，就先给出当前可得结论；只有在证据完全不相关或明显缺失关键前提时，才说明局限。
-3. 每个主要论点都要标注证据编号，如 [E1]、[E2]。
+${citationRule}
 4. 不得编造证据中没有的信息；如果有不确定之处，用“根据现有证据，可以判断/更可能是”这种说法。
-5. 回答结构尽量简洁：先给结论，再补 2-4 条依据，最后如有必要再说明局限。
+5. 回答结构尽量简洁：先给结论，再补 2-${maxEvidencePoints} 条依据，最后如有必要再说明局限。
 
 ${contextText}
 
@@ -178,6 +211,29 @@ ${contextText}
       return false;
     }
 
+    const weakSignalRatio =
+      this.config.get<number>('guardrails.weakSignalRatio') ?? 0.35;
+    const weakSignalFloor =
+      this.config.get<number>('guardrails.weakSignalFloor') ?? 0.01;
+    const weakSignalHits = Math.max(
+      1,
+      this.config.get<number>('guardrails.weakSignalHits') ?? 2,
+    );
+    const weakSignalWindow = Math.max(
+      1,
+      this.config.get<number>('guardrails.weakSignalWindow') ?? 3,
+    );
+    const lexicalSignalMinBm25Score =
+      this.config.get<number>('retrieve.lexicalSignal.minBm25Score') ?? 0.01;
+    const lexicalSignalMinBm25Hits = Math.max(
+      1,
+      this.config.get<number>('retrieve.lexicalSignal.minBm25Hits') ?? 1,
+    );
+    const lexicalSignalMinRrfScore =
+      this.config.get<number>('retrieve.lexicalSignal.minRrfScore') ?? 0.03;
+    const weakSignalLexicalThreshold =
+      this.config.get<number>('guardrails.weakSignalLexicalThreshold') ?? 1;
+
     const topChunk = retrieval.chunks[0];
     const selectedSignal = [
       topChunk?.rerankScore,
@@ -187,12 +243,21 @@ ${contextText}
       topChunk?.score,
     ].filter((value): value is number => typeof value === 'number');
 
-    const hasLexicalSignal = retrieval.chunks.some((item) => (item.scoreBm25 ?? 0) > 0);
-    const hasStrongTopChunk = selectedSignal.some((value) => value >= threshold);
-    const hasMultipleWeakSignals = retrieval.chunks.slice(0, 3).filter((item) => {
-      const signal = item.rerankScore ?? item.scoreRrf ?? item.scoreVec ?? item.score;
-      return signal >= Math.max(threshold * 0.35, 0.01) || (item.scoreBm25 ?? 0) >= 1;
-    }).length >= 2;
+    const hasLexicalSignal =
+      retrieval.chunks.filter((item) => (item.scoreBm25 ?? 0) >= lexicalSignalMinBm25Score)
+        .length >= lexicalSignalMinBm25Hits;
+    const hasStrongTopChunk = selectedSignal.some(
+      (value) => value >= threshold || value >= lexicalSignalMinRrfScore,
+    );
+    const hasMultipleWeakSignals =
+      retrieval.chunks.slice(0, weakSignalWindow).filter((item) => {
+        const signal =
+          item.rerankScore ?? item.scoreRrf ?? item.scoreVec ?? item.score;
+        return (
+          signal >= Math.max(threshold * weakSignalRatio, weakSignalFloor) ||
+          (item.scoreBm25 ?? 0) >= weakSignalLexicalThreshold
+        );
+      }).length >= weakSignalHits;
 
     if (retrieval.strategy === 'hybrid_rrf' || retrieval.strategy === 'hybrid_rrf_rerank') {
       return hasStrongTopChunk || hasLexicalSignal || hasMultipleWeakSignals;
@@ -205,18 +270,116 @@ ${contextText}
     return retrieval.chunks.some((item) => this.confidenceScore(item) >= threshold);
   }
 
-  private isSensitiveQuery(question: string): boolean {
-    return /(医疗|诊断|法律|法务|投资|金融|财务|medical|legal|finance)/i.test(question);
+  private getQueryRiskRules(): QueryRiskRule[] {
+    const sensitivePatterns =
+      this.config.get<QueryRiskRule[]>('guardrails.sensitivePatterns') ?? [];
+    const riskIntents =
+      this.config.get<QueryRiskRule[]>('guardrails.riskIntents') ?? [];
+
+    return [...sensitivePatterns, ...riskIntents];
+  }
+
+  private matchesQueryRiskRule(rule: QueryRiskRule, question: string): boolean {
+    const normalizedQuestion = rule.caseSensitive ? question : question.toLowerCase();
+    const normalizedPattern = rule.caseSensitive ? rule.pattern : rule.pattern.toLowerCase();
+
+    if (rule.type === 'keyword' || rule.type === 'phrase') {
+      return normalizedQuestion.includes(normalizedPattern);
+    }
+
+    try {
+      return new RegExp(rule.pattern, rule.caseSensitive ? undefined : 'i').test(question);
+    } catch (error) {
+      this.logger.warn(
+        `Invalid query risk regex "${rule.id ?? rule.name ?? rule.pattern}": ${(error as Error).message}`,
+      );
+      return false;
+    }
+  }
+
+  private resolveQueryRiskAction(question: string): QueryRiskAction | null {
+    const matchedRules = this.getQueryRiskRules().filter((rule) =>
+      this.matchesQueryRiskRule(rule, question),
+    );
+    if (!matchedRules.length) {
+      return null;
+    }
+
+    const enforcementMode =
+      this.config.get<string>('guardrails.enforcementMode') ?? 'balanced';
+    const matchedScore = matchedRules.reduce(
+      (sum, rule) => sum + Math.max(1, rule.weight ?? 1),
+      0,
+    );
+    const actionScores = matchedRules.reduce<Record<QueryRiskAction, number>>(
+      (acc, rule) => {
+        acc[rule.action] += Math.max(1, rule.weight ?? 1);
+        return acc;
+      },
+      {
+        clarify: 0,
+        abstain: 0,
+        allow_with_warning: 0,
+      },
+    );
+
+    if (actionScores.abstain >= 5) {
+      return 'abstain';
+    }
+
+    if (enforcementMode === 'strict' && matchedScore >= 4) {
+      return actionScores.abstain > 0 ? 'abstain' : 'clarify';
+    }
+
+    if (matchedScore >= 3 || actionScores.clarify >= 3) {
+      return actionScores.abstain > 0 ? 'abstain' : 'clarify';
+    }
+
+    return 'allow_with_warning';
+  }
+
+  private getWarningMessage(): string {
+    return '提示：以下内容仅基于当前知识库证据，不能替代专业判断。';
+  }
+
+  private applyQueryRiskAction(
+    answer: string,
+    action: QueryRiskAction | null,
+  ): string {
+    if (action !== 'allow_with_warning' || !answer.trim()) {
+      return answer;
+    }
+
+    return `${this.getWarningMessage()}\n\n${answer}`;
+  }
+
+  private resolveLowConfidenceStatus(
+    action: QueryRiskAction | null,
+    canAbstain: boolean,
+  ): Extract<RagFinalStatus, 'clarify' | 'abstain'> {
+    if (action === 'abstain' && canAbstain) {
+      return 'abstain';
+    }
+
+    return 'clarify';
+  }
+
+  private renderQuestionTemplate(template: string, question: string): string {
+    return template.replaceAll('{{question}}', question);
   }
 
   private getClarifyMessage(question: string): string {
-    return `当前知识库中未找到与「${question}」相关的证据。
-建议：① 上传相关文档后重新提问；② 换一种表述方式。`;
+    const template =
+      this.config.get<string>('generation.clarifyMessageTemplate') ??
+      '当前知识库中未找到与「{{question}}」相关的证据。建议：① 上传相关文档后重新提问；② 换一种表述方式。';
+    return this.renderQuestionTemplate(template, question);
   }
 
   private getAbstainMessage(question: string): string {
-    return `当前知识库中关于「${question}」的证据不足，且该问题可能涉及高风险判断。
-基于现有资料我不能直接下结论，建议补充更权威的文档后再提问。`;
+    const template =
+      this.config.get<string>('generation.abstainMessageTemplate') ??
+      '当前知识库中关于「{{question}}」的证据不足，且该问题可能涉及高风险判断。基于现有资料我不能直接下结论，建议补充更权威的文档后再提问。';
+    return this.renderQuestionTemplate(template, question);
   }
 
   private async withTimeout<T>(
@@ -248,8 +411,14 @@ ${contextText}
     const requestId = this.traceService.createRequestId();
     const topK = this.config.get<number>('retrieve.topK') ?? 8;
     const retrieveTimeoutMs = this.config.get<number>('guardrails.retrieveTimeoutMs') ?? 500;
-    const tokenBudget = this.config.get<number>('context.tokenBudget') ?? 2000;
+    const maxContextTokens =
+      this.config.get<number>('context.maxContextTokens') ??
+      this.config.get<number>('context.tokenBudget') ??
+      2000;
+    const minScoreThreshold =
+      this.config.get<number>('retrieve.minScoreThreshold') ?? 0.05;
     const abstainThreshold = this.config.get<number>('rag.abstainThreshold') ?? 0.35;
+    const queryRiskAction = this.resolveQueryRiskAction(question);
 
     let retrieval: RetrievalResult = {
       chunks: [],
@@ -279,16 +448,18 @@ ${contextText}
     const context = this.contextBuilder.build({
       query: question,
       candidates: retrieval.chunks,
-      tokenBudget,
+      tokenBudget: maxContextTokens,
     });
+    const enoughSignal = this.hasEnoughSignal(retrieval, minScoreThreshold);
     const lowConfidence =
       retrieveTimedOut ||
-      (!this.hasEnoughSignal(retrieval, abstainThreshold) && context.selected.length === 0);
+      (!enoughSignal && context.selected.length === 0);
 
     if (lowConfidence) {
-      const finalStatus: RagFinalStatus = this.isSensitiveQuery(question)
-        ? 'abstain'
-        : 'clarify';
+      const finalStatus = this.resolveLowConfidenceStatus(
+        queryRiskAction,
+        retrieveTimedOut || !this.hasEnoughSignal(retrieval, abstainThreshold),
+      );
       const answer =
         finalStatus === 'abstain'
           ? this.getAbstainMessage(question)
@@ -310,6 +481,7 @@ ${contextText}
         prompt: '',
         answer,
         sources: this.toSources(context.selected),
+        queryRiskAction,
       };
     }
 
@@ -321,6 +493,7 @@ ${contextText}
       finalStatus: 'success',
       prompt: this.buildPrompt(question, context.contextText),
       sources: this.toSources(context.selected),
+      queryRiskAction,
     };
   }
 
@@ -444,7 +617,10 @@ ${contextText}
         llmTimeoutMs,
         `LLM timed out after ${llmTimeoutMs}ms`,
       );
-      const answer = result.content;
+      const answer = this.applyQueryRiskAction(
+        result.content,
+        prepared.queryRiskAction,
+      );
       await this.traceService.write(
         this.buildTrace(
           question,
@@ -452,7 +628,7 @@ ${contextText}
           answer,
           Date.now() - generateStartedAt,
           result.promptTokens || this.contextBuilder.estimateTokens(prepared.prompt),
-          result.completionTokens || this.contextBuilder.estimateTokens(answer),
+          this.contextBuilder.estimateTokens(answer),
           'success',
         ),
       );
@@ -515,19 +691,27 @@ ${contextText}
     const generateStartedAt = Date.now();
 
     try {
+      const warningPrefix =
+        prepared.queryRiskAction === 'allow_with_warning'
+          ? `${this.getWarningMessage()}\n\n`
+          : '';
+      if (warningPrefix) {
+        onToken(warningPrefix);
+      }
       const result = await this.withTimeout(
         (signal) => this.llm.streamChatCompletion(prepared.prompt, onToken, { signal }),
         llmTimeoutMs,
         `LLM timed out after ${llmTimeoutMs}ms`,
       );
+      const answer = `${warningPrefix}${result.content}`;
       await this.traceService.write(
         this.buildTrace(
           question,
           prepared,
-          result.content,
+          answer,
           Date.now() - generateStartedAt,
           this.contextBuilder.estimateTokens(prepared.prompt),
-          this.contextBuilder.estimateTokens(result.content),
+          this.contextBuilder.estimateTokens(answer),
           'success',
         ),
       );

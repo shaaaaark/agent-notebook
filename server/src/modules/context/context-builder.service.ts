@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Document } from '@langchain/core/documents';
 import type { RetrievedChunk } from '../retrieval/retrieval.types';
 
-export type ContextSkipReason = 'source_limit' | 'low_marginal_gain' | 'token_budget';
+export type ContextSkipReason = 'source_limit' | 'low_relevance' | 'token_budget';
 
 export interface ContextBuilderInput {
   query: string;
@@ -31,19 +31,13 @@ export interface ContextBuilderOutput {
 export class ContextBuilderService {
   constructor(private readonly config: ConfigService) {}
 
-  private marginalGain(prev: RetrievedChunk, current: RetrievedChunk): number {
-    const prevConfidence =
-      prev.rerankScore ?? prev.scoreRrf ?? prev.scoreBm25 ?? prev.scoreVec ?? prev.score;
-    const currentConfidence =
-      current.rerankScore ?? current.scoreRrf ?? current.scoreBm25 ?? current.scoreVec ?? current.score;
-    return prevConfidence - currentConfidence;
-  }
-
   build(input: ContextBuilderInput): ContextBuilderOutput {
     const maxChunksPerSource =
       this.config.get<number>('context.maxChunksPerSource') ?? 2;
-    const coverageMinGain =
-      this.config.get<number>('context.coverageMinGain') ?? 0.005;
+    const minIncrementalCoverage =
+      this.config.get<number>('context.minIncrementalCoverage') ?? 0.05;
+    const minSelectedChunks =
+      this.config.get<number>('context.minSelectedChunks') ?? 3;
 
     const selected: RetrievedChunk[] = [];
     const skipped: SkippedChunk[] = [];
@@ -63,12 +57,9 @@ export class ContextBuilderService {
         continue;
       }
 
-      const prevSelected = selected[selected.length - 1];
-      if (
-        prevSelected &&
-        this.marginalGain(prevSelected, candidate) < coverageMinGain
-      ) {
-        skipped.push({ chunk: candidate, reason: 'low_marginal_gain' });
+      const relevance = this.relevanceScore(candidate);
+      if (selected.length >= minSelectedChunks && relevance < minIncrementalCoverage) {
+        skipped.push({ chunk: candidate, reason: 'low_relevance' });
         continue;
       }
 
@@ -84,7 +75,7 @@ export class ContextBuilderService {
       }
 
       if (evidenceTokens > remainingBudget) {
-        const trimmed = this.trimChunkToBudget(candidate, remainingBudget);
+        const trimmed = this.trimChunkToBudget(candidate, remainingBudget, evidenceIndex);
         if (!trimmed) {
           skipped.push({ chunk: candidate, reason: 'token_budget' });
           truncated = true;
@@ -121,6 +112,12 @@ export class ContextBuilderService {
     return cjkChars + Math.ceil(latinChars / 4);
   }
 
+  private relevanceScore(chunk: RetrievedChunk): number {
+    return (
+      chunk.rerankScore ?? chunk.scoreRrf ?? chunk.scoreVec ?? chunk.scoreBm25 ?? chunk.score
+    );
+  }
+
   private buildContextText(chunks: RetrievedChunk[]): string {
     return chunks.map((chunk, index) => this.formatEvidence(chunk, index + 1)).join('\n\n---\n\n');
   }
@@ -134,11 +131,12 @@ export class ContextBuilderService {
   private trimChunkToBudget(
     chunk: RetrievedChunk,
     tokenBudget: number,
+    evidenceIndex: number,
   ): RetrievedChunk | null {
     const source = String(
       chunk.doc.metadata.source ?? chunk.doc.metadata.filename ?? 'unknown',
     );
-    const header = `[E1] 来源：${source}\n`;
+    const header = `[E${evidenceIndex}] 来源：${source}\n`;
     const headerTokens = this.estimateTokens(header);
 
     if (tokenBudget <= headerTokens + 4) {

@@ -149,12 +149,6 @@ npx ts-node eval/collect-failures.ts --days 7
 - 从 `server/` 目录启动：trace 写入 `server/logs/traces/`
 - 设置 `TRACE_LOG_DIR=/tmp/agent-trace` 后启动：trace 写入 `/tmp/agent-trace/`
 
-### 2.12 前端验收
-
-- clarify/abstain 气泡为黄色背景样式
-- assistant 气泡下方展示 `request_id` 与「标记有帮助」「标记不准确」按钮
-- 点击反馈后按钮高亮，可再次点击切换
-
 ---
 
 ## 3. 本次改动清单
@@ -163,7 +157,7 @@ npx ts-node eval/collect-failures.ts --days 7
 
 - `server/src/modules/context/context-builder.service.ts`
   - 文档级去重（`maxChunksPerSource`）
-  - 覆盖优先（`coverageMinGain`）
+  - 覆盖优先（`min_incremental_coverage`）
   - token 预算截断（`tokenBudget`）
 - `server/src/modules/context/context.module.ts`
 - `server/src/modules/trace/trace.service.ts`
