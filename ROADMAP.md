@@ -1,481 +1,296 @@
 # Agent Notebook — Roadmap
 
-> 目标：在已完成"纯内存结构"的基础上，逐步演进为可用、可扩展、可部署的 NotebookLM-like Agent（NestJS + React + RAG）。
+> 目标：把当前 `agent-notebook` 从“已经具备 RAG 主干能力的原型”推进为**可验证、可调优、可持续演进**的 NotebookLM-like Agent（NestJS + React + RAG）。
 >
-> **测试数据集**：`md-collection/ai_progress/` 下 22 篇 RAG/Agent 学习笔记作为贯穿全程的知识库语料。
+> **重要说明**：本文件不是历史回顾，也不是功能许愿池；它是当前项目的**产品与工程主线**。执行时以“当前阶段是否通过 gate”为最高判断标准。
 
 ---
 
-## 0. 当前基线（已完成）
+## 0. 当前项目定位
 
-- ✅ 纯内存文档存储（`Document[]` 数组，重启丢失）
-- ✅ RAG 问答接口雏形（取最后 5 条文档拼接 context）
-- ✅ 前端基础聊天 UI + SSE 流式显示
-- ✅ 文件上传拖拽区域（支持 .md / .txt / .pdf）
-- ✅ `.gitignore` 覆盖全项目（保护 `.env`、`uploads/`）
+当前项目已经不处于“从零到一”阶段，而处于：
 
-**现存主要问题：**
-- `ingest.service.ts`：全文不切块，超长文档直接截断
-- `rag.service.ts`：`buildPrompt` 用时间顺序而非相关度取 context
-- `llm.provider.ts`：`embeddings` 已初始化但完全未使用
-- prompt 无引用约束，输出无来源标注，模型可能无中生有
-- 零可观测：无 request trace，无法复现线上问题
+- 主链路已通
+- 关键模块已落地
+- 但 Phase 4 仍未正式收口
 
----
+因此，roadmap 的重点不再是“继续罗列未来可能做什么”，而是：
 
-## 1. MVP 可用化（第 1–2 周）
+1. 先把当前链路收稳
+2. 让 eval / trace / replay 真正能指导决策
+3. 在阶段 gate 通过后，再推进更高阶能力
 
-**目标：做到「上传 → 分块 → 向量检索 → 带引用回答」的完整闭环。**
+一句话：
 
-> 测试数据：把 `md-collection/ai_progress/` 22 篇笔记全部上传，验证 RAG 能否准确召回并引用具体段落。
-
-### 1.1 文档分块（Ingest 改造）
-
-**改动文件：** `server/src/modules/ingest/ingest.service.ts`
-
-- [ ] **Sliding-window 分块**
-  - 默认 `CHUNK_SIZE=500` 字符，`STEP=200`（overlap 300）
-  - 每块携带 `metadata: { source, chunk_id: "${filename}#${offset}", chunk_index, total_chunks }`
-  - 通过 `.env` 暴露参数：`CHUNK_SIZE` / `CHUNK_STEP`
-
-- [ ] **文件去重**（防重传）
-  - 对文件内容做 `sha256` hash，同 hash 跳过摄取并返回 `{ skipped: true }`
-
-- [ ] **增量更新支持**（对应笔记 `2026-03-13_ai_progress_1531.md`）
-  - 摄取时按 `chunk_id` 判断是否已存在（hash 相同跳过，hash 变化则替换）
-  - 文件删除时软删除对应 chunk（`active: false`），不立即清理向量
-
-```typescript
-// ingest.service.ts 核心逻辑示意
-private chunk(text: string, source: string): Document[] {
-  const SIZE = +process.env.CHUNK_SIZE! || 500
-  const STEP = +process.env.CHUNK_STEP! || 200
-  const chunks: Document[] = []
-  for (let i = 0; i < text.length; i += STEP) {
-    const content = text.slice(i, i + SIZE)
-    chunks.push(new Document({
-      pageContent: content,
-      metadata: {
-        source,
-        chunk_id: `${source}#${i}`,
-        chunk_index: Math.floor(i / STEP),
-      },
-    }))
-    if (i + SIZE >= text.length) break
-  }
-  return chunks
-}
-```
-
-### 1.2 向量化与检索（RagService 升级）
-
-**改动文件：** `server/src/modules/rag/rag.service.ts`、`server/src/providers/llm.provider.ts`
-
-- [ ] **向量存储**：在 `addDocuments()` 时调用 `llm.embeddings.embedDocuments()` 生成向量，与 chunk 一起存入内存（`{ doc, vec: number[] }`）
-
-- [ ] **余弦相似度检索**，替换"取最后 5 条"：
-  ```typescript
-  async retrieve(question: string, topK = 8): Promise<RetrievedChunk[]> {
-    const qVec = await this.llm.embeddings.embedQuery(question)
-    return this.store
-      .map(item => ({ ...item, score: cosine(qVec, item.vec) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, topK)
-  }
-  ```
-
-- [ ] **新增 `GET /rag/retrieve`**：接收 `q` 参数，返回 topK chunks + scores（用于调试，对应笔记 `2026-03-13_ai_progress_1610.md`）
-
-- [ ] **`max_tokens` 从硬编码 512 改为 env 参数** `LLM_MAX_TOKENS`（默认 1024）
-
-### 1.3 Prompt 工程：引用约束 + 来源标注
-
-**改动文件：** `server/src/modules/rag/rag.service.ts`
-
-- [ ] **证据编号格式** `[E1]...[En]`，每个 chunk 标注来源文件名
-  ```typescript
-  private buildPrompt(question: string, docs: RetrievedChunk[]): string {
-    const evidence = docs.map((d, i) =>
-      `[E${i + 1}] 来源：${d.doc.metadata.source}\n${d.doc.pageContent}`
-    ).join('\n\n---\n\n')
-
-    return `你是知识库助手。请严格基于以下证据回答，每个论点须标注证据编号如 [E1]。
-若证据不足，回复"根据现有资料无法回答，建议补充相关文档"，不得编造内容。
-
-${evidence}
-
-问题：${question}`
-  }
-  ```
-
-- [ ] **response 格式**：SSE `done` 事件附带 `sources` 数组（chunk_id + filename + score）
-
-### 1.4 种子数据脚本
-
-- [ ] 新增 `server/scripts/seed.ts`：读取 `md-collection/ai_progress/` 全部 22 篇笔记，批量调用 `/ingest/file` 接口，生成基准知识库
-  ```bash
-  # 一键导入所有学习笔记
-  npx ts-node scripts/seed.ts --dir ../../md-collection/ai_progress
-  ```
+> **先把系统做成“可判断、可解释、可回归”，再追求更多能力层。**
 
 ---
 
-## 2. Context Builder + 基础可观测（第 2–3 周）
+## 1. 当前基线（截至现在）
 
-**目标：context 构建有策略、有日志，可复现线上问题。**
+### 已经具备的能力
 
-> 测试数据：用笔记中的"自测题"（每篇末尾的问题）构建第一批 eval cases。
+- 文件 ingest、切块、基础知识库管理
+- `/rag/ask` SSE 流式回答
+- `/rag/retrieve` 检索调试入口
+- 向量检索 + BM25 + RRF + rerank 的混合检索主干
+- `ContextBuilder` 选择最终上下文
+- Request trace 基础能力
+- eval cases / harness / runs 第一版
+- `kb_version` / `reindex` / `status` 等知识库运维能力
+- low-confidence / clarify / abstain 的初步诊断字段
+- eval failure draft 采集入口
 
-### 2.1 Context Builder 模块（新增）
+### 当前仍未收口的问题
 
-**新文件：** `server/src/modules/context/context-builder.service.ts`（对应笔记 `2026-03-13_ai_progress_1843.md`、`2026-03-13_ai_progress_1729.md`）
-
-```typescript
-interface ContextBuilderInput {
-  query: string
-  candidates: RetrievedChunk[]   // topK 候选
-  tokenBudget: number            // 默认 2000 tokens
-}
-
-interface ContextBuilderOutput {
-  selected: RetrievedChunk[]     // 最终进入 context 的 chunks
-  skipped: { chunk: RetrievedChunk; reason: string }[]
-  contextText: string
-  stats: { selectedCount: number; tokenUsed: number; truncated: boolean }
-}
-```
-
-三条核心策略：
-- [ ] **文档级去重**：同一 `source` 文件最多保留 2 个 chunk（防单文档垄断）
-- [ ] **覆盖优先**：连续两个 chunk 相似度差值 < 0.05 时，后者跳过（边际增益阈值过滤）
-- [ ] **token 预算截断**：超出 `tokenBudget` 时截断，记录 `truncated: true`
-
-### 2.2 Abstain / Clarify 策略（对应笔记 `2026-03-14_ai_progress_1230.md`）
-
-**改动文件：** `server/src/modules/rag/rag.service.ts`
-
-- [ ] **触发条件**：topK 全部 `score < ABSTAIN_THRESHOLD`（默认 0.35）或 `selected.length === 0`
-- [ ] **Clarify 输出模板**：
-  ```
-  当前知识库中未找到与「{question}」相关的证据。
-  建议：① 上传相关文档后重新提问；② 换一种表述方式。
-  ```
-- [ ] **`final_status` 枚举**：`success | clarify | abstain | error`，写入 trace 和 SSE done 事件
-
-### 2.3 Request-Level Trace（对应笔记 `2026-03-14_ai_progress_1045.md`）
-
-**新文件：** `server/src/modules/trace/trace.service.ts`
-
-每次请求生成一条结构化日志，包含：
-
-```typescript
-interface RequestTrace {
-  request_id: string          // crypto.randomUUID()
-  timestamp: string
-  query_raw: string
-  // 检索阶段
-  retrieve_topK: number
-  retrieved_chunks: { chunk_id: string; score: number }[]
-  retrieve_latency_ms: number
-  // Context 构建
-  selected_chunks: string[]   // chunk_id 列表（用于 replay）
-  skipped_reasons: Record<string, number>  // reason -> count
-  token_used: number
-  truncated: boolean
-  // 生成阶段
-  model: string
-  prompt_tokens: number
-  completion_tokens: number
-  generate_latency_ms: number
-  // 结果
-  answer_hash: string         // md5(answer) 用于 diff 不存原文
-  citations_parsed: string[]  // [E1][E3] → ['E1','E3']
-  final_status: string
-}
-```
-
-- [ ] 日志写入 `server/logs/traces/YYYY-MM-DD.jsonl`（每行一条 JSON）
-- [ ] `GET /rag/trace/:request_id` 接口：按 ID 查询单条 trace（调试用）
-
-### 2.4 成本/延迟护栏（对应笔记 `2026-03-14_ai_progress_1151.md`）
-
-**改动文件：** `server/src/providers/llm.provider.ts`
-
-- [ ] 检索超时：`RETRIEVE_TIMEOUT_MS=500`，超时降级为空 context + clarify
-- [ ] LLM 超时：`LLM_TIMEOUT_MS=10000`
-- [ ] `max_tokens` 上限：`LLM_MAX_TOKENS=1024`，可通过 env 覆盖
-- [ ] 请求级 token 预算：超出 `MAX_CONTEXT_TOKENS`（默认 2000）时触发 Context Builder 截断
+- 中文 query 下的检索相关性仍需验证
+- “有证据却 clarify / abstain”的问题仍需系统排查
+- rerank 不可用时的降级语义虽已可见，但还需真实 run 验证
+- Phase 4 目前仍缺少足够硬的 gate 来宣布“通过”
 
 ---
 
-## 3. Eval 体系（第 3–4 周）
+## 2. 路线原则
 
-**目标：每次改策略都能跑回归，有数据支撑决策。**
+### 原则 1：阶段 gate 高于新增功能
+如果当前阶段没有通过 gate，默认**不扩张后续阶段能力范围**。
 
-> 测试数据：从 22 篇笔记的自测题 + 笔记内关键问题构建 ~30 个 eval cases。
+### 原则 2：诊断优先于调参
+在不知道失败属于 retrieval、context、guardrail、generation 哪一层之前，**不要先堆阈值和策略补丁**。
 
-### 3.1 Eval Case 格式（对应笔记 `2026-03-13_ai_progress_1920.md`）
+### 原则 3：真实 eval 高于主观感觉
+“看起来更合理”不能代替 run 产物。是否继续推进，以真实 eval、trace、失败样本分析为准。
 
-**新目录：** `server/eval/cases/`
+### 原则 4：避免并行主线
+当前只保留一个主线阶段。后续阶段可以设计，但**不能与当前阶段并行争夺优先级**。
 
-```json
-{
-  "case_id": "rag-001",
-  "question": "RAG 生产环境中召回不足的根本原因是什么？",
-  "expected_points": ["分块策略", "嵌入质量", "过滤条件过严"],
-  "must_cite": true,
-  "gold_sources": ["2026-03-11_ai_progress_1834.md"],
-  "constraints": ["不得提及与 RAG 无关的内容"]
-}
-```
-
-初始 Eval Cases 构建计划（直接从笔记提取）：
-
-| case_id | 问题来源笔记 | 知识点 |
-|---|---|---|
-| `rag-001` | `2026-03-11_ai_progress_1834` | RAG 召回不足原因 |
-| `rag-002` | `2026-03-11_ai_progress_1942` | prompt 引用约束模板 |
-| `agent-001` | `2026-03-12_ai_progress_1650` | Agent Loop 7步骤 |
-| `ingest-001` | `2026-03-13_ai_progress_1531` | 增量更新三层数据模型 |
-| `retrieval-001` | `2026-03-13_ai_progress_1651` | 混合检索参数（topK_v/topK_b）|
-| `context-001` | `2026-03-13_ai_progress_1729` | Context 覆盖优先策略 |
-| `eval-001` | `2026-03-13_ai_progress_1920` | Recall@K 定义 |
-| `citation-001` | `2026-03-13_ai_progress_2030` | 引用正确率自动评分方法 |
-| `trace-001` | `2026-03-14_ai_progress_1045` | trace 最小字段集 |
-| `guardrail-001` | `2026-03-14_ai_progress_1151` | 延迟护栏分级 |
-| `abstain-001` | `2026-03-14_ai_progress_1230` | Abstain 触发条件 |
-| `release-001` | `2026-03-14_ai_progress_1010` | Policy 参数化目的 |
-
-### 3.2 Eval Harness 脚本（对应笔记 `2026-03-13_ai_progress_1955.md`）
-
-**新文件：** `server/eval/harness.ts`
-
-```
-eval/
-  cases/               ← JSON case 文件（约 30 个）
-  runs/
-    {run_id}/
-      trace.jsonl      ← 每个 case 的完整 trace
-      metrics.json     ← Recall@K, Context-hit, citation_correct_rate
-      report.md        ← 自动生成的对比报告
-  harness.ts
-```
-
-**MVP 两个指标**（对应笔记 `2026-03-13_ai_progress_1920.md`）：
-- `Recall@K`：gold_source 是否出现在 topK 检索结果中
-- `Context-hit`：gold_source 是否进入最终 context（衡量 Context Builder 过滤是否误杀）
-
-```bash
-# 跑回归
-npx ts-node eval/harness.ts --cases cases/ --run-id $(date +%Y%m%d_%H%M)
-```
-
-- [x] 支持 `--compare <baseline> <target>` 输出差异报告
-- [x] 回归目录沉淀 `trace.jsonl / metrics.json / report.md`
-
-### 3.3 失败案例自动归集（对应笔记 `2026-03-13_ai_progress_1610.md`）
-
-- [x] 在 trace 中记录 `user_feedback`（前端拇指下/上按钮，后续通过 `POST /rag/feedback` 写入）
-- [x] 每周从 `logs/traces/` 抽取 `final_status=clarify` 或有 feedback=-1 的 trace，人工标注后补充进 `eval/cases/`
-
-> Phase 3 边界说明：回归运行、run 对比、失败样本归集已完成；`thresholds.yaml`、自动 hard gate、灰度发布、replay 仍在 Phase 5。
+### 原则 5：文档服务决策，不服务叙事
+roadmap、execution、acceptance 文档都应帮助做取舍；不写“看起来很完整但无法裁决”的描述性废话。
 
 ---
 
-## 4. 混合检索 + 重排（第 4–5 周）
+## 3. 当前阶段总览
 
-**目标：召回质量从"凑合"到"可量化的 Recall@K ≥ 0.8"。**
-
-> 验证指标：在 3.1 的 eval cases 上跑 Recall@K，目标从基线 ~0.5 提升到 ≥ 0.8。
-
-### 4.1 混合检索（对应笔记 `2026-03-13_ai_progress_1651.md`）
-
-**新文件：** `server/src/modules/retrieval/hybrid-retriever.service.ts`
-
-完整检索流水线：
-```
-query normalization
-  → 向量检索（topK_v=50）+ BM25（topK_b=50）
-  → 去重合并（by chunk_id）
-  → RRF 融合排序（topN=30）
-  → Rerank（topM=8）
-  → Context Builder
-  → 生成
-```
-
-- [ ] **BM25**：使用 `wink-bm25-text-search` 或 `flexsearch`，在摄取时建倒排索引
-- [ ] **RRF 融合**：`score_rrf = Σ 1/(rank_i + 60)`（对应笔记推荐值）
-- [ ] **参数全部走 env**：`RETRIEVE_TOP_K_VEC`、`RETRIEVE_TOP_K_BM25`、`RERANK_TOP_M`
-
-### 4.2 Rerank（对应笔记 `2026-03-13_ai_progress_1651.md`）
-
-- [ ] **本地 rerank**：用 `@xenova/transformers`（项目已安装）加载 `cross-encoder/ms-marco-MiniLM-L-6-v2`，对 query × chunk 打分
-- [ ] **降级策略**：rerank 超时（`RERANK_TIMEOUT_MS=500`）时直接用 RRF 结果，记录 `rerank_skipped: true` 进 trace
-
-### 4.3 知识库版本管理（对应笔记 `2026-03-13_ai_progress_1531.md`）
-
-- [ ] 每次全量重索引生成新 `kb_version` 标识
-- [ ] `GET /ingest/status` 返回：当前文档数、chunk 数、最后更新时间、kb_version
-- [ ] 支持"重新索引"操作（清空向量、重新分块、重新 embedding）
+| 阶段 | 目标 | 当前状态 | 是否主线 |
+|---|---|---:|---:|
+| Phase 1 | MVP 闭环 | 已完成 | 否 |
+| Phase 2 | Context + Trace 基础 | 已完成 | 否 |
+| Phase 3 | Eval 体系第一版 | 已完成 | 否 |
+| **Phase 4** | Hybrid Retrieval + Rerank 收口 | **进行中，未通过 gate** | **是** |
+| Phase 5 | Policy / Gate / Replay 工程化 | 已设计，暂缓扩张 | 否 |
+| Phase 6 | UX / KB 管理增强 | 部分有想法，暂缓 | 否 |
+| Phase 7 | 持久化 / 部署 | 未开始，暂缓 | 否 |
 
 ---
 
-## 5. 工程化：参数化发布 + 灰度（第 5–6 周）
+## 4. 当前唯一主线：Phase 4 收口
 
-**目标：所有策略改动可回滚、可对比、可复现。**
+### 4.1 Phase 4 的目标
 
-### 5.1 Policy 参数化（对应笔记 `2026-03-14_ai_progress_1010.md`）
+Phase 4 的目标不是“把混合检索功能写出来”，而是：
 
-**新文件：** `server/config/policy.yaml`
+> **让混合检索 + rerank 在真实知识库和真实问题上，达到可信、可解释、可回归的状态。**
 
-```yaml
-policy_version: "v0.3.0"
-retrieval:
-  top_k_vec: 50
-  top_k_bm25: 50
-  rerank_top_m: 8
-  min_score_threshold: 0.35   # Abstain 触发线
-context:
-  token_budget: 2000
-  max_chunks_per_source: 2
-  coverage_min_gain: 0.05
-generation:
-  model: gpt-4o-mini
-  max_tokens: 1024
-  temperature: 0.3
-```
+这意味着必须同时满足：
 
-- [ ] 每条 trace 写入当时的 `policy_version`
-- [ ] 切换策略只改 `policy.yaml`，不改代码
+- 检索链路存在
+- 运行退化可见
+- 失败原因可分层诊断
+- eval 能稳定重跑
+- 回答与检索结果逻辑一致
 
-### 5.2 回归阈值设计（对应笔记 `2026-03-16_ai_progress_1202.md`）
+### 4.2 Phase 4 当前优先级顺序
 
-**新文件：** `server/eval/thresholds.yaml`
+在 Phase 4 通过前，优先级固定为：
 
-```yaml
-hard_gates:                     # 自动回滚
-  citation_correct_rate: -0.02  # 下降 >2% 触发
-  abstain_rate: +0.02           # 上升 >2% 触发
-  p95_latency_ms: +15           # 上升 >15% 触发
-soft_gates:                     # 人工 review
-  recall_at_k: -0.03
-  context_hit: -0.03
-```
+1. **失败原因可观测**
+2. **失败样本可复盘 / 可分桶**
+3. **真实 eval 可稳定重跑**
+4. **检索 / Context / guardrail 的定点调优**
+5. **正式验收与结果归档**
 
-- [ ] Eval Harness 对比两个 `run_id`，超过 hard gate 时输出 `ROLLBACK REQUIRED` + 具体 delta
+禁止倒序做事。尤其禁止：
 
-### 5.3 灰度分桶设计（对应笔记 `2026-03-16_ai_progress_1236.md`）
+- 在 failure reason 还不清楚时大范围调阈值
+- 在 eval 还不稳定时推进 Phase 5 扩张项
 
-- [ ] trace 写入 `bucket_id`：`hash(user_id_hash) % 100`（无 user_id 时用 `request_id`）
-- [ ] 新策略路由 `bucket < 5`（5% 流量），同时记录 `is_ab_group: true`
-- [ ] `GET /rag/ab-report?window=24h` 对比两组的 `Recall@K`、`abstain_rate`、`p95_latency`
+### 4.3 Phase 4 通过 gate（必须同时满足）
 
-### 5.4 Replay 框架（对应笔记 `2026-03-16_ai_progress_1309.md`）
+#### A. 功能 gate
+- `/rag/retrieve` 返回真实运行态调试字段：
+  - `strategy`
+  - `degraded`
+  - `degrade_reason`
+  - chunk 级分数/排序信息
+- trace 能记录：
+  - `final_status`
+  - `final_reason`
+  - `clarify_reason / abstain_reason`
+  - retrieval / context 诊断字段
+- 失败样本采集入口能输出可用于 triage 的 draft
 
-**新文件：** `server/eval/replay.ts`
+#### B. 运行 gate
+- 真实知识库可完成 reset + reseed + reindex 流程
+- `rag/ask`、`rag/retrieve`、trace 查询链路可正常工作
+- build / 关键测试稳定通过
 
-```
-replay(request_id):
-  读 trace → 重建 retrieve 候选（用 cached chunk_id list）
-  → 按 policy_version 参数重跑 Context Builder + 生成
-  → diff(new_answer, original_answer_hash)
-  → 输出 replay_result.json
-```
+#### C. 评测 gate
+- 30-case eval 可以稳定跑完
+- 至少产出：
+  - `metrics.json`
+  - `trace.jsonl`
+  - `report.md`
+- 需要重点观察：
+  - `Recall@K`
+  - `Context-hit`
+  - `clarify_rate`
+  - `abstain_rate`
+  - degraded 分布
 
-- [ ] trace 里保存 `replay_input.json`（最小闭包：query + filters + candidate_chunk_ids + policy_version）
-- [ ] replay 可直接作为 eval case 的 "回归输入"
+#### D. 诊断 gate
+- clarify / abstain 不再只是结果标签，而是能分辨至少以下几类原因：
+  - `retrieve_timeout`
+  - `empty_retrieval`
+  - `context_filtered_empty`
+  - `weak_signal`
+- 对主要失败类型，能够明确落到以下三类之一：
+  - retrieval 不足
+  - context 选择问题
+  - guardrail / generation 判定问题
 
----
+#### E. 文档 gate
+- 阶段状态与验收结果同步更新：
+  - `docs/acceptance/PHASE4_ACCEPTANCE.md`
+  - `docs/phases/PHASE4_OUTCOME.md`
+  - `docs/execution/NEXT_STEP_PLAN.md`
 
-## 6. 体验与前端增强（第 3–4 周，可与 3–5 并行）
+### 4.4 Phase 4 的停止 / 让路规则
 
-### 6.1 来源可视化
+以下情况出现时，**不继续扩张功能面**：
 
-- [ ] SSE `done` 事件附带 `sources: [{chunk_id, source, score, snippet}]`
-- [ ] 前端气泡下方展示来源折叠面板（文件名 + 相关片段 + 相似度分）
-- [ ] `final_status=clarify` 时特殊样式（黄色提示框而非普通气泡）
+1. eval 无法稳定重跑
+2. failure reason 仍无法分层解释
+3. 上游偶发问题（如 502 / timeout）占据主要波动来源
+4. 主要失败原因尚未明确落桶
 
-### 6.2 文件库管理
+当出现这些情况时，默认动作不是进入 Phase 5，而是继续回到：
 
-- [ ] `GET /ingest/files` 返回已摄取文件列表（文件名、chunks 数、摄取时间）
-- [ ] 前端侧边栏"知识库"标签页：展示文件列表、支持删除单个文件
-- [ ] 文件删除后触发 chunk 软删除 + 向量清理
-
-### 6.3 对话历史
-
-- [ ] 前端本地存储（`localStorage`）多轮会话，展示历史消息
-- [ ] 发送时携带最近 3 轮上下文拼入 prompt（多轮对话支持）
-
-### 6.4 每日复习摘要（复活 Cron）
-
-- [ ] `review.job.ts` 改为真实摘要：取最近 24h 上传的文档，生成"今日新增知识点摘要"
-- [ ] 摘要写入 `ReviewLog` 表，前端侧边栏展示"今日摘要"卡片
-- [ ] 支持推送（Telegram Bot / 系统通知）
-
----
-
-## 7. 持久化与部署（第 6–8 周）
-
-### 7.1 持久化
-
-- [ ] **向量库**：引入 `Qdrant`（Docker 部署），替换内存存储；`VECTOR_STORE=qdrant` 配置切换
-- [ ] **元数据库**：`SQLite`（本地）或 `PostgreSQL`（生产），存文档记录、traces、review logs
-- [ ] **Session 持久化**：会话 ID → 对话记录写入 DB
-
-### 7.2 Docker 化
-
-- [ ] `docker-compose.yml`：`server` + `web(nginx)` + `qdrant` 三容器
-- [ ] 环境变量统一通过 `.env` 注入，`server/.env.example` 同步更新所有新增参数
-
-### 7.3 监控
-
-- [ ] `GET /metrics`：暴露 `total_requests`、`abstain_rate`、`avg_latency_ms`、`token_cost_total`
-- [ ] 费用告警：`token_cost_total` 超过 `COST_ALERT_USD` 时写 warn 日志
+- trace / failure draft
+- replay / eval
+- retrieval / context / clarify 诊断
 
 ---
 
-## 文档导航
+## 5. 下一阶段：Phase 5（仅在 Phase 4 通过后开启）
 
-- `ROADMAP.md`：产品路线图与目标边界
-- `docs/execution/EXECUTION_PLAN.md`：执行顺序、阶段优先级、验收入口
-- `docs/execution/NEXT_STEP_PLAN.md`：当前短期行动板
-- `docs/acceptance/`：阶段验收记录
-- `docs/phases/`：阶段成果总结
+### 5.1 Phase 5 的定位
 
-## 里程碑
+Phase 5 不是当前并行主线，而是：
 
-| 里程碑 | 目标周 | 交付标准 |
-|---|---|---|
-| **M1 — MVP 闭环** | 第 2 周 | 22 篇笔记导入后，能基于向量检索并带 `[E1]` 引用回答 |
-| **M2 — 可观测** | 第 3 周 | 每次请求生成 trace，`/rag/trace/:id` 可查；Abstain 策略生效 |
-| **M3 — Eval 体系** | 第 4 周 | 30 个 eval cases，`harness.ts` 输出 `Recall@K ≥ 0.5`（基线） |
-| **M4 — 混合检索** | 第 5 周 | BM25 + 向量 + Rerank，`Recall@K ≥ 0.8` |
-| **M5 — 参数化发布** | 第 6 周 | policy.yaml 驱动，支持 replay，hard gate 自动告警 |
-| **M6 — 持久化部署** | 第 8 周 | Docker 一键起全栈，数据重启不丢失 |
+> **当 Phase 4 已经“可判断、可解释、可回归”后，再把策略层升级为可配置、可对比、可回放的工程系统。**
+
+### 5.2 Phase 5 范围
+
+仅在 Phase 4 通过后，才正式推进：
+
+- `policy.yaml`
+- `thresholds.yaml`
+- compare / gate 判定
+- replay 最小闭环强化
+- `policy_version` 与 trace / run 对账
+
+### 5.3 为什么现在不把它设为主线
+
+因为当前最关键的问题不是“缺少策略配置文件”，而是：
+
+- 失败还未充分解释
+- eval 还未成为稳定裁决依据
+- Clarify / Abstain 的真实失败模式还在收口
+
+在这种状态下先大推 Phase 5，只会让系统看起来更工程化，但更难判断是否真的变好。
 
 ---
 
-## 参考笔记索引
+## 6. 后续阶段（暂缓，不并行抢资源）
 
-> 每项任务对应的学习笔记（均在 `md-collection/ai_progress/`）
+### Phase 6 — UX / KB 管理增强
+适合在 Phase 4/5 之后推进：
 
-| 任务模块 | 对应笔记 |
-|---|---|
-| 分块策略 + 增量更新 | `2026-03-13_ai_progress_1531.md` |
-| 混合检索流水线 | `2026-03-13_ai_progress_1651.md` |
-| Context Builder 接口设计 | `2026-03-13_ai_progress_1843.md` |
-| Context 去重/覆盖策略 | `2026-03-13_ai_progress_1729.md` |
-| RAG 可观测性 + 调试路径 | `2026-03-13_ai_progress_1610.md` |
-| Eval Case 格式 + 指标 | `2026-03-13_ai_progress_1920.md` |
-| Eval Harness 实现 | `2026-03-13_ai_progress_1955.md` |
-| 引用正确率自动评分 | `2026-03-13_ai_progress_2030.md` |
-| Trace 最小字段集 | `2026-03-14_ai_progress_1045.md` |
-| 成本/延迟护栏 | `2026-03-14_ai_progress_1151.md` |
-| Abstain / Clarify 策略 | `2026-03-14_ai_progress_1230.md` |
-| Policy 参数化 + 回滚 | `2026-03-14_ai_progress_1010.md` |
-| 回归阈值设计 | `2026-03-16_ai_progress_1202.md` |
-| 灰度分桶设计 | `2026-03-16_ai_progress_1236.md` |
-| Replay 框架 | `2026-03-16_ai_progress_1309.md` |
-| Prompt 引用约束 | `2026-03-11_ai_progress_1942.md` |
-| 生产 RAG 问题排查 | `2026-03-11_ai_progress_1834.md` |
-| Agent Loop + Context Engineering | `2026-03-12_ai_progress_1650.md` |
+- 来源可视化
+- 文件库管理
+- 历史会话
+- clarify / abstain 的用户体验优化
+
+### Phase 7 — 持久化 / 部署
+适合在 Phase 5 之后推进：
+
+- 向量库持久化
+- 元数据库
+- Session 持久化
+- Docker Compose
+- metrics / cost alert
+
+这些方向都合理，但当前**不是主线**。
+
+---
+
+## 7. 当前推荐开发顺序（严格执行）
+
+### Step 1
+继续补强 Phase 4 的 diagnostics / eval readiness：
+- trace 原因字段
+- failure draft 采集
+- replay / triage 入口
+
+### Step 2
+重跑真实 eval，拿到足够多的 failure samples：
+- 识别 clarify / abstain 的主因分布
+- 判断主要问题在 retrieval / context / guardrail 哪一层
+
+### Step 3
+基于 failure bucket 做定点优化：
+- retrieval 召回
+- ContextBuilder 过滤策略
+- clarify / abstain 判定
+
+### Step 4
+完成 Phase 4 正式验收：
+- 指标
+- 产物
+- 文档
+- 结论
+
+### Step 5
+只有在 Step 4 完成后，才进入 Phase 5
+
+---
+
+## 8. 当前不做什么
+
+为了减少战略性分心，当前默认**不作为主线推进**的包括：
+
+- 账号池维护 / 调度策略类工作
+- 无关的大范围重构
+- 无明确验收价值的文档美化
+- 提前扩张前端体验层功能
+- 在 Phase 4 未通过时并行建设完整 Phase 5 框架
+
+---
+
+## 9. 这个 roadmap 如何使用
+
+- `ROADMAP.md`：定义当前主线、阶段边界、gate 与 defer 规则
+- `docs/execution/EXECUTION_PLAN.md`：把 roadmap 变成执行顺序
+- `docs/execution/NEXT_STEP_PLAN.md`：记录当前最近的一小段最优先动作
+- `docs/acceptance/`：阶段验收证据
+- `docs/phases/`：阶段结果与关键决策归档
+
+如果执行动作无法映射到当前 roadmap 主线条目，默认**不应优先实现**。
+
+---
+
+## 10. 一句话版
+
+当前项目的唯一主线是：
+
+> **先把 Phase 4 做到可判断、可解释、可回归，再进入 Phase 5 的参数化与回放工程化。**
