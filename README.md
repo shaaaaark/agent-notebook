@@ -181,14 +181,14 @@ data:
 
 ## 开发路线
 
-项目当前已完成 **Phase 1-3**，下一阶段是 **Phase 4（混合检索 + Rerank）**：
+项目当前已完成 **Phase 1-3**；**Phase 4（混合检索 + Rerank）主干已实现，但仍在收口验收中**：
 
 ```
 Phase 0 ✅  纯内存 RAG 基线
 Phase 1 ✅  文档分块 + 向量检索 + 引用标注
 Phase 2 ✅  Context Builder + 可观测 Trace + Abstain 策略
 Phase 3 ✅  Eval Harness（30 个回归 Case）
-Phase 4     混合检索（向量 + BM25）+ Rerank
+Phase 4 🚧  混合检索（向量 + BM25）+ Rerank（主干已实现，待正式验收）
 Phase 5     参数化发布 + 灰度分桶 + Replay 框架
 Phase 6     持久化（Qdrant + SQLite）+ Docker 部署
 ```

@@ -20,26 +20,24 @@
 
 ## 当前下一步
 
-### 1. 收口回答保守问题
-- 检查 `RagService` 中 clarify / abstain 的触发条件
-- 避免“已有证据但过早拒答”
-- 让生成链路先尽量基于已有证据总结，再决定是否需要补充限定
+### 1. 以真实知识库重跑正式 eval
+- 使用真实知识库重新跑 30-case eval
+- 保留 run 产物，和已有 Phase 3 / Phase 4 run 做 compare
+- 重点看 `Recall@K / Context-hit / clarify_rate / degraded 分布`
 
-### 2. 优化上下文拼装
-- 检查 `ContextBuilderService`
-- 降低泛泛 chunk 抢预算的概率
-- 提高真正命中问题根因的 chunk 进入最终 context 的概率
+### 2. 定点排查“有证据却 clarify”的 case
+- 逐个看 retrieval topK 是否已经命中 gold source
+- 检查 `ContextBuilderService` 是否误杀高价值 chunk
+- 检查 `RagService` 是否在已有证据时仍过早进入 clarify / abstain
 
-### 3. 明确 rerank provider 策略
-- 当前环境下本地 `@xenova/transformers` reranker 会因拉取 Hugging Face 模型超时而失败
-- 默认使用 Bailian rerank；本地 rerank 不再作为默认方案，仅保留为离线兜底思路
-- rerank 不可用时，输出清晰的 `degraded / degrade_reason`
-- 避免静默影响回归结论
+### 3. 固化当前推荐运行基线
+- 默认 rerank provider 继续使用 Bailian
+- 把推荐配置、常用命令、回归入口整理成稳定开发基线
+- 减少“环境偶发问题”对项目结论的污染
 
-### 4. 重跑正式 eval
-- 跑 30-case eval
-- 对比 Phase 3 基线
-- 记录 Recall@K / Context-hit / clarify rate
+### 4. Phase 4 收口后再推进 Phase 5
+- 当前不再扩散到新能力点
+- 等 Phase 4 的真实回归与质量判断收稳后，再继续 policy / gate / replay
 
 ## 完成标准
 
