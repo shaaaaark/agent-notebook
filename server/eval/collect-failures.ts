@@ -14,6 +14,14 @@ type RequestTrace = {
   retrieved_chunks: TraceChunkRecord[];
   selected_sources?: string[];
   final_status: string;
+  final_reason?: string;
+  clarify_reason?: string;
+  abstain_reason?: string;
+  retrieval_signal_ok?: boolean;
+  retrieve_timed_out?: boolean;
+  retrieved_count?: number;
+  selected_count?: number;
+  query_risk_action?: string | null;
   user_feedback?: 1 | -1;
 };
 
@@ -24,6 +32,16 @@ type FailureDraft = {
   final_status: string;
   user_feedback?: 1 | -1;
   reasons: string[];
+  diagnostics: {
+    final_reason?: string;
+    clarify_reason?: string;
+    abstain_reason?: string;
+    retrieval_signal_ok?: boolean;
+    retrieve_timed_out?: boolean;
+    retrieved_count?: number;
+    selected_count?: number;
+    query_risk_action?: string | null;
+  };
   retrieved_sources: string[];
   selected_sources: string[];
   draft_case: {
@@ -167,11 +185,23 @@ function shouldCollect(trace: RequestTrace): boolean {
 }
 
 function toFailureDraft(trace: RequestTrace): FailureDraft {
-  const reasons: string[] = [];
-
-  if (trace.final_status === 'clarify') reasons.push('clarify');
-  if (trace.final_status === 'abstain') reasons.push('abstain');
-  if (trace.user_feedback === -1) reasons.push('negative_feedback');
+  const reasons = Array.from(
+    new Set(
+      [
+        trace.final_status === 'clarify' ? 'clarify' : null,
+        trace.final_status === 'abstain' ? 'abstain' : null,
+        trace.user_feedback === -1 ? 'negative_feedback' : null,
+        trace.final_reason ?? null,
+        trace.clarify_reason ?? null,
+        trace.abstain_reason ?? null,
+        trace.retrieve_timed_out ? 'retrieve_timed_out' : null,
+        trace.retrieval_signal_ok === false ? 'retrieval_signal_missing' : null,
+        trace.selected_count === 0 && (trace.retrieved_count ?? trace.retrieved_chunks?.length ?? 0) > 0
+          ? 'context_selected_empty'
+          : null,
+      ].filter((item): item is string => Boolean(item)),
+    ),
+  );
 
   const retrievedSources = Array.from(
     new Set(trace.retrieved_chunks?.map((item) => item.source) ?? []),
@@ -186,6 +216,22 @@ function toFailureDraft(trace: RequestTrace): FailureDraft {
     final_status: trace.final_status,
     ...(trace.user_feedback ? { user_feedback: trace.user_feedback } : {}),
     reasons,
+    diagnostics: {
+      ...(trace.final_reason ? { final_reason: trace.final_reason } : {}),
+      ...(trace.clarify_reason ? { clarify_reason: trace.clarify_reason } : {}),
+      ...(trace.abstain_reason ? { abstain_reason: trace.abstain_reason } : {}),
+      ...(trace.retrieval_signal_ok !== undefined
+        ? { retrieval_signal_ok: trace.retrieval_signal_ok }
+        : {}),
+      ...(trace.retrieve_timed_out !== undefined
+        ? { retrieve_timed_out: trace.retrieve_timed_out }
+        : {}),
+      ...(trace.retrieved_count !== undefined ? { retrieved_count: trace.retrieved_count } : {}),
+      ...(trace.selected_count !== undefined ? { selected_count: trace.selected_count } : {}),
+      ...(trace.query_risk_action !== undefined
+        ? { query_risk_action: trace.query_risk_action }
+        : {}),
+    },
     retrieved_sources: retrievedSources,
     selected_sources: selectedSources,
     draft_case: {
