@@ -25,10 +25,11 @@
 | Phase 1 | MVP 闭环 | 已实现 | 已通过 | 保留结果 |
 | Phase 2 | Context + Trace | 已实现 | 已通过 | 保留结果 |
 | Phase 3 | Eval 体系 | 已实现第一版 | 已通过 | 保留结果 |
-| **Phase 4** | Hybrid + Rerank 收口 | 已实现主干，正在补 diagnostics / eval readiness | **未通过** | **当前唯一主线** |
+| **P0** | 知识库最小持久化 / 向量落库 | 必须立即推进 | 未通过 | 当前前置主线 |
+| **Phase 4** | Hybrid + Rerank 收口 | 已实现主干，正在补 diagnostics / eval readiness | **未通过** | P0 完成后恢复为主线 |
 | Phase 5 | Policy / Gate / Replay | 仅保留设计，不作为并行主线 | 未验收 | 待 Phase 4 gate 通过后继续 |
 | Phase 6 | UX / KB 管理 | 暂缓 | 未验收 | 暂不推进 |
-| Phase 7 | 持久化 / 部署 | 暂缓 | 未验收 | 暂不推进 |
+| Phase 7 | 完整部署工程化 | 暂缓 | 未验收 | 暂不推进 |
 
 ## 推荐实施顺序
 
@@ -108,7 +109,8 @@
 ## 当前立即执行项
 
 当前默认优先处理：
-1. Phase 4 diagnostics / trace / failure draft 收口
-2. 恢复并重跑真实 eval，形成 failure bucket
-3. 基于 failure bucket 做 retrieval / context / clarify 定点优化
-4. 只有在 Phase 4 gate 通过后，才进入 Phase 5 的参数化与 replay 能力建设
+1. P0：知识库最小持久化 / 向量落库
+2. 在稳定知识库状态上恢复 Phase 4 diagnostics / trace / failure draft 收口
+3. 重跑真实 eval，形成 failure bucket
+4. 基于 failure bucket 做 retrieval / context / clarify 定点优化
+5. 只有在 Phase 4 gate 通过后，才进入 Phase 5 的参数化与 replay 能力建设
