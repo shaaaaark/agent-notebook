@@ -48,11 +48,20 @@ type PreparedResponse = {
   context: ContextBuilderOutput;
   retrieveLatencyMs: number;
   finalStatus: RagFinalStatus;
+  finalReason?: string;
   prompt: string;
   answer?: string;
   sources: RagSource[];
   queryRiskAction: QueryRiskAction | null;
+  enoughSignal: boolean;
+  retrieveTimedOut: boolean;
 };
+
+type LowConfidenceReason =
+  | 'retrieve_timeout'
+  | 'empty_retrieval'
+  | 'context_filtered_empty'
+  | 'weak_signal';
 
 class TimeoutError extends Error {
   constructor(message: string) {
@@ -364,6 +373,27 @@ ${contextText}
     return 'clarify';
   }
 
+  private resolveLowConfidenceReason(
+    retrieveTimedOut: boolean,
+    retrieval: RetrievalResult,
+    selected: RetrievedChunk[],
+    enoughSignal: boolean,
+  ): LowConfidenceReason | undefined {
+    if (retrieveTimedOut) {
+      return 'retrieve_timeout';
+    }
+    if (!retrieval.chunks.length) {
+      return 'empty_retrieval';
+    }
+    if (!selected.length) {
+      return 'context_filtered_empty';
+    }
+    if (!enoughSignal) {
+      return 'weak_signal';
+    }
+    return undefined;
+  }
+
   private renderQuestionTemplate(template: string, question: string): string {
     return template.replaceAll('{{question}}', question);
   }
@@ -451,9 +481,14 @@ ${contextText}
       tokenBudget: maxContextTokens,
     });
     const enoughSignal = this.hasEnoughSignal(retrieval, minScoreThreshold);
+    const lowConfidenceReason = this.resolveLowConfidenceReason(
+      retrieveTimedOut,
+      retrieval,
+      context.selected,
+      enoughSignal,
+    );
     const lowConfidence =
-      retrieveTimedOut ||
-      (!enoughSignal && context.selected.length === 0);
+      retrieveTimedOut || (!!lowConfidenceReason && !enoughSignal);
 
     if (lowConfidence) {
       const finalStatus = this.resolveLowConfidenceStatus(
@@ -464,6 +499,10 @@ ${contextText}
         finalStatus === 'abstain'
           ? this.getAbstainMessage(question)
           : this.getClarifyMessage(question);
+      const lowConfidenceSources =
+        context.selected.length > 0
+          ? context.selected
+          : retrieval.chunks.slice(0, Math.min(3, retrieval.chunks.length));
 
       return {
         requestId,
@@ -478,10 +517,13 @@ ${contextText}
         context,
         retrieveLatencyMs,
         finalStatus,
+        finalReason: lowConfidenceReason,
         prompt: '',
         answer,
-        sources: this.toSources(context.selected),
+        sources: this.toSources(lowConfidenceSources),
         queryRiskAction,
+        enoughSignal,
+        retrieveTimedOut,
       };
     }
 
@@ -494,6 +536,8 @@ ${contextText}
       prompt: this.buildPrompt(question, context.contextText),
       sources: this.toSources(context.selected),
       queryRiskAction,
+      enoughSignal,
+      retrieveTimedOut,
     };
   }
 
@@ -554,6 +598,18 @@ ${contextText}
       answer_hash: this.hashAnswer(answer),
       citations_parsed: this.extractCitations(answer),
       final_status: finalStatus,
+      ...(prepared.finalReason ? { final_reason: prepared.finalReason } : {}),
+      ...(finalStatus === 'clarify' && prepared.finalReason
+        ? { clarify_reason: prepared.finalReason }
+        : {}),
+      ...(finalStatus === 'abstain' && prepared.finalReason
+        ? { abstain_reason: prepared.finalReason }
+        : {}),
+      retrieval_signal_ok: prepared.enoughSignal,
+      retrieve_timed_out: prepared.retrieveTimedOut,
+      retrieved_count: prepared.retrieval.chunks.length,
+      selected_count: prepared.context.selected.length,
+      query_risk_action: prepared.queryRiskAction,
     };
   }
 
@@ -613,6 +669,7 @@ ${contextText}
         answer,
         sources: prepared.sources,
         finalStatus: prepared.finalStatus,
+        finalReason: prepared.finalReason,
         requestId: prepared.requestId,
       };
     }
@@ -645,6 +702,7 @@ ${contextText}
         answer,
         sources: prepared.sources,
         finalStatus: 'success' as const,
+        finalReason: prepared.finalReason,
         requestId: prepared.requestId,
       };
     } catch (error) {
@@ -692,6 +750,7 @@ ${contextText}
       return {
         sources: prepared.sources,
         finalStatus: prepared.finalStatus,
+        finalReason: prepared.finalReason,
         requestId: prepared.requestId,
       };
     }
@@ -727,6 +786,7 @@ ${contextText}
       return {
         sources: prepared.sources,
         finalStatus: 'success' as const,
+        finalReason: prepared.finalReason,
         requestId: prepared.requestId,
       };
     } catch (error) {

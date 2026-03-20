@@ -211,4 +211,92 @@ describe('RagService', () => {
     expect(trace.rerank_skipped).toBe(false);
     expect(trace.rerank_reason).toBeUndefined();
   });
+
+  it('derives low-confidence reasons from retrieval and context state', () => {
+    const service = createService({});
+    const retrieval = {
+      strategy: 'hybrid_rrf',
+      degraded: false,
+      chunks: [
+        {
+          doc: new Document({ pageContent: 'doc-1', metadata: { chunk_id: 'c1' } }),
+          score: 0.02,
+        },
+      ],
+    };
+
+    expect((service as any).resolveLowConfidenceReason(true, retrieval, [], false)).toBe(
+      'retrieve_timeout',
+    );
+    expect(
+      (service as any).resolveLowConfidenceReason(false, { ...retrieval, chunks: [] }, [], false),
+    ).toBe('empty_retrieval');
+    expect((service as any).resolveLowConfidenceReason(false, retrieval, [], false)).toBe(
+      'context_filtered_empty',
+    );
+    expect(
+      (service as any).resolveLowConfidenceReason(false, retrieval, retrieval.chunks, false),
+    ).toBe('weak_signal');
+    expect(
+      (service as any).resolveLowConfidenceReason(false, retrieval, retrieval.chunks, true),
+    ).toBeUndefined();
+  });
+
+  it('writes final decision reasons and signal diagnostics into trace payload', () => {
+    const service = createService({
+      'policy.version': 'phase5-v1',
+      'retrieve.topK': 8,
+      'openai.model': 'gpt-5.4',
+    });
+
+    const trace = (service as any).buildTrace(
+      '什么情况下会 clarify',
+      {
+        requestId: 'req-2',
+        retrieval: {
+          chunks: [
+            {
+              doc: new Document({
+                pageContent: '低分 chunk',
+                metadata: { chunk_id: 'c2', source: 'b.md' },
+              }),
+              score: 0.04,
+            },
+          ],
+          strategy: 'hybrid_rrf',
+          degraded: true,
+          degradeReason: 'low_confidence',
+        },
+        context: {
+          selected: [],
+          skipped: [],
+          contextText: '',
+          stats: { selectedCount: 0, tokenUsed: 0, truncated: false },
+        },
+        retrieveLatencyMs: 45,
+        finalStatus: 'clarify',
+        finalReason: 'context_filtered_empty',
+        prompt: '',
+        answer: '请补充信息',
+        sources: [],
+        queryRiskAction: 'clarify',
+        enoughSignal: false,
+        retrieveTimedOut: false,
+      },
+      '请补充信息',
+      0,
+      0,
+      8,
+      'clarify',
+    );
+
+    expect(trace.final_reason).toBe('context_filtered_empty');
+    expect(trace.clarify_reason).toBe('context_filtered_empty');
+    expect(trace.abstain_reason).toBeUndefined();
+    expect(trace.retrieval_signal_ok).toBe(false);
+    expect(trace.retrieve_timed_out).toBe(false);
+    expect(trace.retrieved_count).toBe(1);
+    expect(trace.selected_count).toBe(0);
+    expect(trace.query_risk_action).toBe('clarify');
+  });
 });

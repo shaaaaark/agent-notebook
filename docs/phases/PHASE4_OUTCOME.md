@@ -121,6 +121,12 @@ Phase 4 的**主干能力已经落地**：
 
 这会直接拖垮 Phase 4 的真实验收。
 
+当前已补上一层基础诊断：
+
+- `clarify` / `abstain` 路径现在会把最终原因写入 trace（如 `retrieve_timeout`、`empty_retrieval`、`context_filtered_empty`、`weak_signal`）
+- trace 额外记录 `retrieval_signal_ok`、`retrieve_timed_out`、`retrieved_count`、`selected_count`
+- 当低置信返回时，如果 retrieval 实际已有候选，接口会回传候选来源，避免排查时只看到空 `sources`
+
 ---
 
 ## 当前阶段最重要的决策

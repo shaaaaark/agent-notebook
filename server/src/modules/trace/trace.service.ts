@@ -49,6 +49,14 @@ export interface RequestTrace {
   answer_hash: string;
   citations_parsed: string[];
   final_status: string;
+  final_reason?: string;
+  clarify_reason?: string;
+  abstain_reason?: string;
+  retrieval_signal_ok?: boolean;
+  retrieve_timed_out?: boolean;
+  retrieved_count?: number;
+  selected_count?: number;
+  query_risk_action?: string | null;
   user_feedback?: 1 | -1;
 }
 

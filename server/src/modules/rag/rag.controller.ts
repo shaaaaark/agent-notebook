@@ -42,6 +42,7 @@ export class RagController {
         JSON.stringify({
           sources: result.sources,
           final_status: result.finalStatus,
+          final_reason: result.finalReason,
           request_id: result.requestId,
         }),
       );
